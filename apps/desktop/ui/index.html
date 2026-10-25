@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyFind</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, "SF Pro Display", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif; overflow: hidden; }
+  body, main, input, button, div, span, textarea { -webkit-app-region: no-drag; }
+  body { position: relative; overflow: hidden; background: rgba(15,16,22,0.88); color: rgba(255,255,255,0.92); border-radius: 12px; }
+  /* 液态玻璃 — JS 驱动流体（暗色调） */
+  .fluid-l { position: fixed; z-index: -3; border-radius: 50%; pointer-events: none; filter: url(#liquid); }
+  .fl1 { width: 90vmax; height: 70vmax; background: radial-gradient(ellipse, rgba(120,90,255,0.28), transparent 65%); }
+  .fl2 { width: 80vmax; height: 50vmax; background: radial-gradient(ellipse, rgba(255,120,80,0.16), transparent 60%); }
+  .fl3 { width: 70vmax; height: 55vmax; background: radial-gradient(ellipse, rgba(255,170,90,0.13), transparent 55%); }
+  .fl4 { width: 60vmax; height: 40vmax; background: radial-gradient(ellipse, rgba(80,160,255,0.16), transparent 50%); }
+  .glass-overlay {
+    position: fixed; inset: 0; z-index: -2;
+    backdrop-filter: blur(40px) saturate(160%);
+    -webkit-backdrop-filter: blur(40px) saturate(160%);
+  }
+  .noise {
+    position: fixed; inset: -50%; z-index: -1; opacity: 0.05; pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, transparent 20%, rgba(255,255,255,0.15) 100%);
+    filter: url(#noise);
+  }
+  .vignette {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 80px; z-index: 1;
+    background: linear-gradient(to top, rgba(0,0,0,0.15), transparent);
+    pointer-events: none;
+  }
+  /* 标题栏 */
+  #titlebar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 0; -webkit-app-region: drag; position: relative; z-index: 20; }
+  .title-left { display: flex; align-items: center; gap: 8px; }
+  .title-text { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.72); letter-spacing: -0.1px; }
+  .hotkey-hint { font-size: 10px; color: rgba(255,255,255,0.35); border: 0.5px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 5px; }
+  .gear { width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.5); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
+  .gear:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+  .traffic { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; border: none; cursor: pointer; -webkit-app-region: no-drag; transition: filter 0.1s, transform 0.1s; }
+  .dot:hover { filter: brightness(1.15); transform: scale(1.05); }
+  .dot.close { background: #fe5f57; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); }
+  .dot.min { background: #febc2e; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); }
+  .dot.max { background: #28c840; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); }
+  /* 搜索区 */
+  #search-area { padding: 12px 18px 8px; position: relative; z-index: 20; }
+  #q-box {
+    position: relative; display: flex; align-items: center;
+    background: rgba(28,30,42,0.78); border: 0.5px solid rgba(255,255,255,0.16);
+    border-radius: 10px;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 1px 8px rgba(0,0,0,0.25);
+    transition: all 0.2s cubic-bezier(0.25,0.1,0.25,1);
+  }
+  #q-box:focus-within {
+    border-color: rgba(110,150,255,0.55);
+    box-shadow: 0 2px 16px rgba(90,130,255,0.18), 0 0 0 0.5px rgba(110,150,255,0.25) inset;
+  }
+  #q-box .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 14px; color: rgba(255,255,255,0.4); pointer-events: none; z-index: 2; }
+  #q-stack { position: relative; flex: 1; min-width: 0; }
+  #q, #q-hl {
+    width: 100%; padding: 11px 8px 11px 40px; font-size: 14px; font-family: inherit;
+    line-height: 1.4; letter-spacing: normal; white-space: pre;
+  }
+  #q {
+    position: relative; z-index: 2; background: transparent; border: none; outline: none;
+    color: transparent; caret-color: rgba(255,255,255,0.95);
+  }
+  #q::placeholder { color: rgba(255,255,255,0.35); font-weight: 400; }
+  #q-hl {
+    position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none;
+    color: rgba(255,255,255,0.92);
+  }
+  #q-hl .tk-field { color: #8ab4ff; }
+  #q-hl .tk-value { color: #2dd4bf; }
+  #q-hl .tk-op { color: #fbbf24; font-weight: 600; }
+  #q-hl .tk-exclude { color: #f97316; }
+  #q-hl .tk-phrase { color: #a3e635; }
+  #q-hl .invalid { color: #ff9b9b; text-decoration: underline wavy #ff5f5f; text-underline-offset: 3px; }
+  #syntax-btn {
+    flex-shrink: 0; margin-right: 8px;
+    width: 26px; height: 26px; border-radius: 7px; border: none; cursor: pointer;
+    background: transparent; color: rgba(255,255,255,0.4); font-size: 13px; font-weight: 600;
+    transition: background 0.12s, color 0.12s; z-index: 2;
+  }
+  #syntax-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+  /* suggest 下拉 */
+  #suggest {
+    position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 45;
+    background: rgba(22,24,36,0.97); backdrop-filter: blur(30px);
+    border: 0.5px solid rgba(255,255,255,0.14); border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5); padding: 5px; display: none;
+    max-height: 240px; overflow-y: auto;
+  }
+  #suggest.open { display: block; }
+  .sg-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+  .sg-item:hover, .sg-item.sel { background: rgba(120,150,255,0.2); }
+  .sg-item .sg-field { font-family: ui-monospace, Consolas, monospace; color: #8ab4ff; font-size: 11px; }
+  .sg-item .sg-val { color: rgba(255,255,255,0.88); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg-item .sg-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.35); flex-shrink: 0; }
+  /* kind 分段控件 — 玻璃容器 + 滑动指示器 + kind 色彩体系 */
+  #kinds-wrap { position: relative; z-index: 20; padding: 0 18px 7px; }
+  #seg {
+    --accent: #9db4e8;
+    position: relative; display: flex; padding: 3px; border-radius: 12px;
+    background: rgba(255,255,255,0.045);
+    border: 0.5px solid rgba(255,255,255,0.09);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -2px 4px rgba(0,0,0,0.22), 0 1px 8px rgba(0,0,0,0.18);
+    backdrop-filter: blur(16px) saturate(150%); -webkit-backdrop-filter: blur(16px) saturate(150%);
+  }
+  #seg-ind {
+    position: absolute; top: 3px; bottom: 3px; left: 3px; width: 0; border-radius: 9px;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 32%, rgba(255,255,255,0.16)),
+      color-mix(in srgb, var(--accent) 20%, rgba(255,255,255,0.07)));
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35),
+                0 0 16px color-mix(in srgb, var(--accent) 38%, transparent),
+                inset 0 1px 0 rgba(255,255,255,0.22),
+                inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 55%, transparent);
+    transition: left 0.28s cubic-bezier(0.32,0.72,0.28,1), width 0.28s cubic-bezier(0.32,0.72,0.28,1),
+                background 0.25s, box-shadow 0.25s;
+    pointer-events: none;
+  }
+  .seg {
+    --sa: #9db4e8;
+    position: relative; z-index: 1; flex: 1; display: flex; align-items: center; justify-content: center;
+    gap: 5px; padding: 5px 4px; font-size: 11.5px; font-weight: 500; font-family: inherit;
+    letter-spacing: 0.2px; background: transparent; border: none; border-radius: 9px; cursor: pointer;
+    color: rgba(255,255,255,0.46); transition: color 0.18s, transform 0.15s;
+  }
+  .seg:hover { color: rgba(255,255,255,0.85); }
+  .seg:hover .seg-ico { transform: translateY(-1px); color: rgba(255,255,255,0.85); }
+  .seg:active { transform: scale(0.97); }
+  .seg:focus-visible { outline: 1.5px solid color-mix(in srgb, var(--sa) 65%, white); outline-offset: 1px; }
+  .seg.active { color: rgba(255,255,255,0.96); font-weight: 600; }
+  .seg.active .seg-ico { color: var(--sa); }
+  .seg-ico { width: 13px; height: 13px; flex-shrink: 0; color: rgba(255,255,255,0.4); transition: transform 0.16s, color 0.18s; }
+  .seg-count {
+    font-size: 9px; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; line-height: 1;
+    color: rgba(255,255,255,0.34); background: rgba(255,255,255,0.06);
+    padding: 2.5px 5px; border-radius: 7px; transition: color 0.18s, background 0.18s;
+  }
+  .seg.active .seg-count { color: var(--sa); background: rgba(0,0,0,0.3); }
+  .seg-count:empty { display: none; }
+  @keyframes seg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .seg { animation: seg-in 0.35s cubic-bezier(0.25,0.6,0.3,1) backwards; }
+  .seg:nth-child(2) { animation-delay: 0.03s; } .seg:nth-child(3) { animation-delay: 0.06s; }
+  .seg:nth-child(4) { animation-delay: 0.09s; } .seg:nth-child(5) { animation-delay: 0.12s; }
+  .seg:nth-child(6) { animation-delay: 0.15s; }
+  /* 状态行 */
+  #status {
+    padding: 1px 22px 6px; font-size: 10.5px; letter-spacing: 0.3px; color: rgba(255,255,255,0.4);
+    position: relative; z-index: 2; display: flex; gap: 8px; align-items: center; min-height: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  #status .idx { color: rgba(255,255,255,0.28); }
+  #status .mock-tag { color: #ffc96b; border: 0.5px solid rgba(255,200,100,0.4); border-radius: 4px; padding: 0 5px; font-size: 9.5px; letter-spacing: 1px; }
+  /* 结果区 */
+  #results-zone { flex: 1; position: relative; z-index: 2; min-height: 0; display: flex; flex-direction: column; }
+  #results-wrap { flex: 1; overflow-y: auto; padding: 0 12px 14px; position: relative; }
+  #results-wrap::-webkit-scrollbar { width: 4px; }
+  #results-wrap::-webkit-scrollbar-track { background: transparent; }
+  #results-wrap::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+  /* 加载态：居中整个结果区 + skeleton 行 */
+  #loading {
+    position: absolute; inset: 0; z-index: 6; display: none;
+    flex-direction: column; align-items: center; padding: 48px 24px 0; gap: 16px;
+    background: transparent; pointer-events: none;
+  }
+  #loading.show { display: flex; }
+  #loading .ld-text { font-size: 13px; color: rgba(255,255,255,0.55); letter-spacing: 1px; }
+  #loading .ld-spin {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.15); border-top-color: rgba(150,180,255,0.9);
+    animation: ld-rot 0.8s linear infinite;
+  }
+  @keyframes ld-rot { to { transform: rotate(360deg); } }
+  .ld-skel { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .sk-row {
+    height: 36px; border-radius: 8px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.045) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.045) 75%);
+    background-size: 200% 100%; animation: sk-shimmer 1.15s linear infinite;
+  }
+  @keyframes sk-shimmer { to { background-position: -200% 0; } }
+  .group-pending { margin-bottom: 6px; }
+  .group-pending .gp-head { display: flex; align-items: center; gap: 7px; padding: 7px 8px 5px; }
+  .group-pending .gp-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(150,180,255,0.5); animation: gp-pulse 1s ease-in-out infinite; }
+  @keyframes gp-pulse { 50% { opacity: 0.25; } }
+  .group-pending .gp-label { font-size: 11px; color: rgba(255,255,255,0.35); }
+  .group { margin-bottom: 6px; }
+  .group-head {
+    display: flex; align-items: center; gap: 7px; padding: 7px 8px 5px; cursor: pointer;
+    user-select: none; border-radius: 7px;
+  }
+  .group-head:hover { background: rgba(255,255,255,0.05); }
+  .group-head .g-icon { font-size: 13px; }
+  .group-head .g-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.75); }
+  .group-head .g-kind { font-size: 9px; font-family: ui-monospace, Consolas, monospace; color: rgba(255,255,255,0.35); border: 0.5px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 4px; }
+  .group-head .g-count { font-size: 11px; color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.07); border-radius: 10px; padding: 0 7px; }
+  .group-head .g-trunc { font-size: 10px; color: #ffc96b; }
+  .group-head .g-arrow { margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.35); transition: transform 0.15s; }
+  .group.collapsed .g-arrow { transform: rotate(-90deg); }
+  .group.collapsed .group-body { display: none; }
+  .result {
+    display: flex; align-items: flex-start; padding: 7px 10px; border-radius: 8px;
+    cursor: pointer; gap: 10px; transition: background 0.12s; position: relative;
+  }
+  .result:hover { background: rgba(255,255,255,0.08); backdrop-filter: blur(8px); }
+  .result.focused { background: rgba(120,150,255,0.18); box-shadow: 0 0 0 0.5px rgba(120,150,255,0.35) inset; }
+  .result .ico { font-size: 17px; width: 24px; text-align: center; flex-shrink: 0; opacity: 0.9; padding-top: 1px; }
+  .result .info { flex: 1; min-width: 0; }
+  .result .name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.93); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .result .snippet { font-size: 11.5px; color: rgba(255,255,255,0.6); margin-top: 2px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
+  .result .path { font-size: 10.5px; color: rgba(255,255,255,0.38); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Consolas, monospace; }
+  .result .meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 10.5px; color: rgba(255,255,255,0.45); }
+  .agent-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: rgba(255,255,255,0.6); }
+  .agent-badge .a-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .proj-tag { color: rgba(160,190,255,0.75); font-size: 10px; }
+  mark { background: rgba(255,200,70,0.32); color: #ffe9a8; border-radius: 3px; padding: 0 1px; }
+  /* 行内动作按钮 */
+  .acts { position: absolute; right: 8px; top: 6px; display: none; gap: 4px; }
+  .result:hover .acts, .result.focused .acts { display: flex; }
+  .acts button {
+    font-size: 10.5px; font-family: inherit; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+    border: 0.5px solid rgba(255,255,255,0.18); background: rgba(40,44,60,0.92); color: rgba(255,255,255,0.8);
+    transition: all 0.12s; backdrop-filter: blur(6px);
+  }
+  .acts button:hover { background: rgba(120,150,255,0.35); border-color: rgba(120,150,255,0.5); color: #fff; }
+  .acts button.primary { background: rgba(120,150,255,0.32); border-color: rgba(120,150,255,0.5); color: #e6ecff; }
+  .acts button.primary:hover { background: rgba(120,150,255,0.5); }
+  .empty { text-align: center; padding: 40px 0; color: rgba(255,255,255,0.35); font-size: 13px; }
+  /* 内核引导页 */
+  #onboard {
+    position: absolute; inset: 0; z-index: 8; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    text-align: center; padding: 0 40px;
+  }
+  #onboard.show { display: flex; }
+  #onboard .ob-title { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.85); }
+  #onboard .ob-desc { font-size: 12px; color: rgba(255,255,255,0.5); line-height: 1.7; }
+  #onboard .ob-url { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: #8ab4ff; background: rgba(120,150,255,0.12); border-radius: 6px; padding: 2px 10px; }
+  #onboard .ob-btns { display: flex; gap: 8px; margin-top: 8px; }
+  /* 会话预览侧栏 */
+  #preview {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 46%; min-width: 340px; z-index: 30;
+    background: rgba(18,20,30,0.92); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    border-left: 0.5px solid rgba(255,255,255,0.12);
+    box-shadow: -12px 0 40px rgba(0,0,0,0.4);
+    transform: translateX(102%); transition: transform 0.25s cubic-bezier(0.25,0.1,0.25,1);
+    display: flex; flex-direction: column;
+  }
+  #preview.open { transform: translateX(0); }
+  #preview-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; border-bottom: 0.5px solid rgba(255,255,255,0.08); }
+  #preview-head .pv-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #preview-head .pv-close { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.5); font-size: 14px; cursor: pointer; }
+  #preview-head .pv-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  #preview-meta { padding: 8px 16px; font-size: 11px; color: rgba(255,255,255,0.5); display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 0.5px solid rgba(255,255,255,0.06); }
+  #preview-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  #preview-body::-webkit-scrollbar { width: 4px; }
+  #preview-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+  .msg { margin-bottom: 10px; border-radius: 10px; padding: 8px 12px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .msg .m-role { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; margin-bottom: 4px; text-transform: uppercase; }
+  .msg .m-ts { font-weight: 400; color: rgba(255,255,255,0.3); margin-left: 6px; text-transform: none; }
+  .msg.user { background: rgba(120,150,255,0.14); border: 0.5px solid rgba(120,150,255,0.22); }
+  .msg.user .m-role { color: #a8bcff; }
+  .msg.assistant { background: rgba(255,255,255,0.05); border: 0.5px solid rgba(255,255,255,0.08); }
+  .msg.assistant .m-role { color: rgba(255,255,255,0.55); }
+  #preview-foot { padding: 10px 16px; border-top: 0.5px solid rgba(255,255,255,0.08); display: flex; gap: 8px; }
+  #preview-foot button {
+    flex: 1; padding: 8px 0; font-size: 12px; font-weight: 600; font-family: inherit; border-radius: 8px; cursor: pointer;
+    border: 0.5px solid rgba(120,150,255,0.5); background: rgba(120,150,255,0.3); color: #e6ecff; transition: background 0.12s;
+  }
+  #preview-foot button:hover { background: rgba(120,150,255,0.48); }
+  #preview-foot button.ghost { border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75); }
+  #preview-foot button.ghost:hover { background: rgba(255,255,255,0.12); }
+  /* 弹层（语法卡 / 设置） */
+  .popover {
+    position: absolute; z-index: 40; border-radius: 12px; padding: 14px 16px;
+    background: rgba(22,24,36,0.95); backdrop-filter: blur(30px);
+    border: 0.5px solid rgba(255,255,255,0.14); box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .popover.open { display: block; }
+  #syntax-card { right: 18px; top: 96px; width: 320px; max-height: calc(100% - 130px); overflow-y: auto; }
+  #syntax-card::-webkit-scrollbar { width: 4px; }
+  #syntax-card::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+  .pop-title { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85); margin-bottom: 8px; }
+  .syn-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 11px; align-items: baseline; }
+  .syn-row code { font-family: ui-monospace, Consolas, monospace; color: #a8bcff; background: rgba(120,150,255,0.14); border-radius: 4px; padding: 1px 6px; cursor: pointer; white-space: nowrap; }
+  .syn-row code:hover { background: rgba(120,150,255,0.3); }
+  .syn-row span { color: rgba(255,255,255,0.5); line-height: 1.4; }
+  .syn-sec { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.4); letter-spacing: 1px; margin: 10px 0 6px; text-transform: uppercase; }
+  .syn-example { margin-top: 8px; padding-top: 8px; border-top: 0.5px solid rgba(255,255,255,0.08); font-size: 10.5px; color: rgba(255,255,255,0.4); }
+  .syn-example code { color: #ffd9a0; font-family: ui-monospace, Consolas, monospace; }
+  #settings-card { left: 14px; top: 40px; width: 300px; }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; font-size: 12px; color: rgba(255,255,255,0.75); }
+  #hotkey-input {
+    width: 130px; padding: 5px 8px; font-size: 11.5px; font-family: ui-monospace, Consolas, monospace; text-align: center;
+    background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 7px;
+    color: #cfd9ff; outline: none; cursor: pointer;
+  }
+  #hotkey-input.recording { border-color: rgba(255,200,100,0.6); color: #ffd9a0; }
+  #kernel-input {
+    flex: 1; padding: 5px 8px; font-size: 11px; font-family: ui-monospace, Consolas, monospace;
+    background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 7px;
+    color: #cfd9ff; outline: none;
+  }
+  .set-btn { padding: 5px 12px; font-size: 11px; font-family: inherit; border-radius: 7px; cursor: pointer; border: 0.5px solid rgba(120,150,255,0.45); background: rgba(120,150,255,0.22); color: #cfd9ff; }
+  .set-btn:hover { background: rgba(120,150,255,0.4); }
+  .set-btn.danger { border-color: rgba(255,110,110,0.4); background: rgba(255,90,90,0.15); color: #ffb0b0; }
+  .set-btn.danger:hover { background: rgba(255,90,90,0.3); }
+  .switch { position: relative; width: 34px; height: 19px; border-radius: 12px; background: rgba(255,255,255,0.12); border: none; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+  .switch.on { background: rgba(110,150,255,0.6); }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+  .switch.on::after { left: 17px; }
+  .set-note { font-size: 10px; color: rgba(255,255,255,0.35); line-height: 1.5; margin-top: 2px; }
+  /* toast */
+  #toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 50;
+    background: rgba(25,28,40,0.95); border: 0.5px solid rgba(255,255,255,0.16); border-radius: 9px;
+    padding: 8px 16px; font-size: 12px; color: rgba(255,255,255,0.9); opacity: 0;
+    transition: opacity 0.2s, transform 0.2s; pointer-events: none; max-width: 80%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #layout { display: flex; flex-direction: column; height: 100%; position: relative; z-index: 2; }
+</style>
+</head>
+<body>
+<!-- SVG 流体滤镜 -->
+<svg style="position:absolute;width:0;height:0">
+  <filter id="liquid">
+    <!-- 静态液态扭曲：SMIL 动画会强制每帧重算滤镜，软渲染环境下打满主线程（实测点击即"无响应"） -->
+    <feTurbulence type="fractalNoise" baseFrequency="0.008" numOctaves="4" seed="3" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="40" xChannelSelector="R" yChannelSelector="G" result="displaced"/>
+    <feGaussianBlur in="displaced" stdDeviation="6" result="blurred"/>
+    <feMerge><feMergeNode in="blurred"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="noise">
+    <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" seed="5"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+</svg>
+<!-- 流体背景 -->
+<div class="fluid-l fl1"></div>
+<div class="fluid-l fl2"></div>
+<div class="fluid-l fl3"></div>
+<div class="fluid-l fl4"></div>
+<div class="glass-overlay"></div>
+<div class="noise"></div>
+<div id="layout">
+  <div id="titlebar">
+    <div class="title-left">
+      <span class="title-text">AnyFind</span>
+      <span class="hotkey-hint" id="hotkey-hint" title="全局唤起热键">…</span>
+      <button class="gear" id="gear" title="设置">&#x2699;</button>
+    </div>
+    <div class="traffic">
+      <div class="dot min" id="btn-min"></div>
+      <div class="dot max" id="btn-max"></div>
+      <div class="dot close" id="btn-hide" title="隐藏窗口（热键可唤起）"></div>
+    </div>
+  </div>
+  <div id="search-area">
+    <div id="q-box">
+      <span class="icon">&#x1F50D;</span>
+      <div id="q-stack">
+        <div id="q-hl" aria-hidden="true"></div>
+        <input id="q" type="text" placeholder="搜索文件、内容、AI 会话、技能、记忆…" autofocus spellcheck="false" autocomplete="off">
+      </div>
+      <button id="syntax-btn" title="过滤语法">?</button>
+      <div id="suggest"></div>
+    </div>
+  </div>
+  <div id="kinds-wrap"></div>
+  <div id="status"></div>
+  <div id="results-zone">
+    <div id="results-wrap"></div>
+    <div id="loading">
+      <div class="ld-spin"></div>
+      <div class="ld-text">搜索中…</div>
+      <div class="ld-skel">
+        <div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div>
+        <div class="sk-row"></div><div class="sk-row"></div>
+      </div>
+    </div>
+    <div id="onboard">
+      <div class="ob-title">搜索内核未连接</div>
+      <div class="ob-desc">AnyFind 需要本地搜索内核（anyfindd）提供数据。<br>请先启动内核，然后点击重试。当前内核地址：</div>
+      <div class="ob-url" id="ob-url">…</div>
+      <div class="ob-btns">
+        <button class="set-btn" id="ob-retry">重试连接</button>
+        <button class="set-btn" id="ob-settings">修改内核地址</button>
+        <button class="set-btn" id="ob-mock">Mock 预览</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- 会话预览侧栏 -->
+<div id="preview">
+  <div id="preview-head">
+    <span class="pv-title" id="pv-title">会话预览</span>
+    <button class="pv-close" onclick="closePreview()">&#x2715;</button>
+  </div>
+  <div id="preview-meta"></div>
+  <div id="preview-body"></div>
+  <div id="preview-foot">
+    <button id="pv-resume">&#x21A9; 带上下文跳回会话</button>
+    <button class="ghost" id="pv-copy-cmd">复制 resume 命令</button>
+  </div>
+</div>
+<!-- DSL v1 语法卡 -->
+<div class="popover" id="syntax-card">
+  <div class="pop-title">查询语法 DSL v1（点击插入）</div>
+  <div class="syn-sec">基础</div>
+  <div class="syn-row"><code data-ins="关键词">裸词</code><span>多个裸词 AND 组合</span></div>
+  <div class="syn-row"><code data-ins="&quot;">"短语"</code><span>双引号精确匹配</span></div>
+  <div class="syn-row"><code data-ins=" OR ">a OR b</code><span>或关系（大写 OR）</span></div>
+  <div class="syn-row"><code data-ins="-">-排除</code><span>减号前缀排除关键词</span></div>
+  <div class="syn-sec">字段过滤</div>
+  <div class="syn-row"><code data-ins="kind:">kind:</code><span>file / content / session / skill / memory</span></div>
+  <div class="syn-row"><code data-ins="agent:">agent:</code><span>claude-code / codex / dsh / opencode / pi / cursor</span></div>
+  <div class="syn-row"><code data-ins="project:">project:</code><span>按项目名，如 project:anyfind</span></div>
+  <div class="syn-row"><code data-ins="ext:">ext:</code><span>扩展名，多个用分号 ext:pdf;docx</span></div>
+  <div class="syn-row"><code data-ins="size:">size:</code><span>size:&gt;10mb 或 size:1mb..5mb</span></div>
+  <div class="syn-row"><code data-ins="date:">date:</code><span>today / week / &gt;2026-10-01 / 2026-10-01..2026-10-20</span></div>
+  <div class="syn-row"><code data-ins="in:">in:</code><span>路径前缀，如 in:D:/coding</span></div>
+  <div class="syn-row"><code data-ins="role:">role:</code><span>user / assistant（session 专用）</span></div>
+  <div class="syn-example">组合示例：<code>kind:session agent:codex nginx</code><br><code>ext:pdf;docx size:&gt;10mb date:week</code></div>
+</div>
+<!-- 设置卡 -->
+<div class="popover" id="settings-card">
+  <div class="pop-title">设置</div>
+  <div class="set-row">
+    <span>全局唤起热键</span>
+    <input id="hotkey-input" readonly value="…" title="点击后按新组合键">
+  </div>
+  <div class="set-row">
+    <span>内核地址</span>
+    <input id="kernel-input" spellcheck="false" title="anyfindd HTTP 地址">
+    <button class="set-btn" id="kernel-save">保存</button>
+  </div>
+  <div class="set-row">
+    <span>开机自启动</span>
+    <button class="switch" id="autostart-switch"></button>
+  </div>
+  <div class="set-row">
+    <span>Mock 数据模式</span>
+    <button class="switch" id="mock-switch" title="内核未就绪时用假数据预览 UI"></button>
+  </div>
+  <div class="set-row">
+    <span>退出 AnyFind</span>
+    <button class="set-btn danger" id="btn-quit">退出</button>
+  </div>
+  <div class="set-note">热键保存后立即生效并写入 %APPDATA%/anyfind/config.json；关闭按钮仅隐藏窗口，热键可随时唤起。</div>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+/* ============ 壳桥接层（Tauri / 浏览器双模式） ============ */
+const T = window.__TAURI__ || null;
+const invoke = window.__ffInvoke || (T && T.core ? T.core.invoke.bind(T.core) : null);
+const DEFAULT_KERNEL = "http://127.0.0.1:8765";
+
+const FF = {
+  mock: false,
+  kinds: "",              // "" = 全部；否则单个 kind（纯客户端过滤）
+  collapsed: {},
+  flat: [],               // 当前渲染的命中 [{kind, hit}]
+  sel: -1,
+  session: null,          // 预览中的会话 hit
+  hotkey: "ctrl+shift+f",
+  cfg: {},                // 持久化配置（Tauri: %APPDATA%/anyfind/config.json）
+  lastData: null,         // 最近一次搜索数据（切 tab 零请求的来源）
+  pendingKinds: null,     // 流式阶段二未到时的待加载 kind 列表
+  resultCache: new Map(), // q → data（回退历史查询瞬时渲染）
+  suggestCache: { projects: [], dirs: [] },
+  indexCounts: null,
+};
+
+const GROUPS = [
+  { k: "file",    label: "文件",    icon: "\u{1F4C4}" },
+  { k: "content", label: "内容",    icon: "\u{1F4DD}" },
+  { k: "session", label: "AI 会话", icon: "\u{1F4AC}" },
+  { k: "skill",   label: "技能",    icon: "\u{1F9E9}" },
+  { k: "memory",  label: "记忆",    icon: "\u{1F9E0}" },
+];
+const KIND_KEYS = GROUPS.map(g => g.k);
+const KIND_ICONS = { file: "\u{1F4C4}", content: "\u{1F4DD}", session: "\u{1F4AC}", skill: "\u{1F9E9}", memory: "\u{1F9E0}" };
+const AGENTS = {
+  "claude-code": { c: "#d97757", n: "Claude Code" },
+  "codex":       { c: "#10a37f", n: "Codex" },
+  "dsh":         { c: "#ec4899", n: "dsh" },
+  "opencode":    { c: "#818cf8", n: "opencode" },
+  "pi":          { c: "#f59e0b", n: "Pi" },
+  "cursor":      { c: "#3b82f6", n: "Cursor" },
+};
+
+const $ = id => document.getElementById(id);
+window.FF = FF; // 测试/调试钩子
+
+/* ============ 配置存取 ============ */
+async function loadConfig() {
+  let cfg = {};
+  if (invoke) {
+    try { cfg = await invoke("get_config"); } catch (e) {}
+  } else {
+    try { cfg = JSON.parse(localStorage.getItem("ff.cfg") || "{}"); } catch (e) {}
+  }
+  FF.cfg = Object.assign({ hotkey: "ctrl+shift+f", kernel_url: DEFAULT_KERNEL, autostart: false, mock: false }, cfg || {});
+  // URL 覆盖（测试用）：?kernel=http://127.0.0.1:8766
+  const urlKernel = new URLSearchParams(location.search).get("kernel");
+  if (urlKernel) FF.cfg.kernel_url = urlKernel;
+}
+async function saveConfig() {
+  if (invoke) {
+    try { await invoke("save_config_cmd", { cfg: FF.cfg }); } catch (e) { toast("配置保存失败"); }
+  } else {
+    localStorage.setItem("ff.cfg", JSON.stringify(FF.cfg));
+  }
+}
+function kernelBase() { return (FF.cfg.kernel_url || DEFAULT_KERNEL).replace(/\/+$/, ""); }
+
+/* ============ 内核 API（经壳代理，免 CORS；mock 拦截） ============ */
+/* 超时兜底：任何内核请求都不能无限等（内核僵死时 UI 必须保持可用） */
+function withTimeout(p, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error((label || "内核请求") + "超时")), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
+}
+function fetchWithTimeout(url, opts, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, Object.assign({}, opts || {}, { signal: ctl.signal }))
+    .finally(() => clearTimeout(t));
+}
+const KERNEL_TIMEOUT_MS = 30000;
+
+async function kernelGet(path) {
+  if (window.__ffStats) window.__ffStats.calls.push(["GET", path]);
+  if (FF.mock) return mockRoute("GET", path);
+  if (invoke) return JSON.parse(await withTimeout(invoke("kernel_get", { path }), KERNEL_TIMEOUT_MS, "内核请求"));
+  const r = await fetchWithTimeout(kernelBase() + path, null, KERNEL_TIMEOUT_MS);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+async function kernelPost(path, body) {
+  if (window.__ffStats) window.__ffStats.calls.push(["POST", path]);
+  if (FF.mock) return mockRoute("POST", path, body);
+  if (invoke) return JSON.parse(await withTimeout(invoke("kernel_post", { path, body }), KERNEL_TIMEOUT_MS, "内核请求"));
+  const r = await fetchWithTimeout(kernelBase() + path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  }, KERNEL_TIMEOUT_MS);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function apiHealth() {
+  if (FF.mock) return { ok: true, version: "mock", index: { files: 128430, sessions: 312, skills: 46, memories: 58 }, indexing: false };
+  try { return await kernelGet("/api/health"); } catch (e) { return null; }
+}
+async function apiSearchPath(q, kinds) {
+  const params = new URLSearchParams({ q, limit: "20" });
+  if (kinds) params.set("kinds", kinds);
+  return kernelGet("/api/search?" + params);
+}
+async function apiSession(id) { return kernelGet("/api/session/" + encodeURIComponent(id)); }
+async function apiResume(hit, spawn) {
+  return kernelPost("/api/resume", { agent: hit.agent, session_id: hit.session_id, cwd: hit.cwd, spawn: !!spawn });
+}
+
+/* ============ 工具 ============ */
+function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+function hi(s) {
+  return esc(s)
+    .replace(/&lt;mark&gt;/g, "<mark>")
+    .replace(/&lt;\/mark&gt;/g, "</mark>");
+}
+function fmtTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso).slice(0, 16);
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+let toastTimer;
+function toast(msg, ms) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms || 2200);
+}
+async function copyTextRaw(t) {
+  // Tauri 壳优先走 Rust 剪贴板：navigator.clipboard 在无真实手势/无焦点时会静默落空
+  if (invoke) {
+    try { await invoke("copy_text", { text: t }); return true; } catch (e) {}
+  }
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
+  return false;
+}
+async function copyText(t, label) {
+  if (!t) return;
+  if (await copyTextRaw(t)) { toast(label || "已复制路径"); return; }
+  toast("复制失败");
+}
+function iconFor(name) {
+  const ext = (name || "").split(".").pop().toLowerCase();
+  const icons = { py: "\u{1F40D}", js: "\u{1F310}", ts: "\u{1F4DD}", html: "\u{1F578}", css: "\u{1F3A8}",
+                  json: "\u{1F4CB}", md: "\u{1F4C4}", txt: "\u{1F4C4}", rs: "\u{1F99A}", go: "\u{1F426}",
+                  exe: "\u2699", db: "\u{1F5C3}", jpg: "\u{1F5BC}", png: "\u{1F5BC}", pdf: "\u{1F4D1}",
+                  toml: "\u2699", yaml: "\u2699", yml: "\u2699", xml: "\u{1F4CB}", cfg: "\u2699" };
+  return icons[ext] || "\u{1F4C4}";
+}
+
+/* ============ 窗口控制（Tauri） ============ */
+function curWin() { return T && T.window ? T.window.getCurrentWindow() : null; }
+function hideWindow() {
+  const w = curWin();
+  if (w) { w.hide(); return; }
+  toast("仅桌面版支持隐藏窗口");
+}
+function quitApp() {
+  if (invoke) { invoke("quit_app"); return; }
+  window.close();
+}
+$("btn-min").addEventListener("click", () => { const w = curWin(); if (w) w.minimize(); });
+$("btn-max").addEventListener("click", () => { const w = curWin(); if (w) w.toggleMaximize(); });
+$("btn-hide").addEventListener("click", hideWindow);
+$("btn-quit").addEventListener("click", quitApp);
+if (T && T.event) {
+  T.event.listen("focus-search", () => { const q = $("q"); q.focus(); q.select(); });
+}
+
+/* ============ DSL v1 解析（前端镜像：染色/校验/建议） ============ */
+const DSL_FIELDS = ["kind", "agent", "project", "ext", "size", "date", "in", "role"];
+const FIELD_VALUES = {
+  kind: KIND_KEYS,
+  agent: Object.keys(AGENTS),
+  role: ["user", "assistant"],
+};
+function validateField(name, value) {
+  if (value === "") return true; // 正在输入，不标红
+  switch (name) {
+    case "kind": return value.split(/[,;]/).every(v => KIND_KEYS.some(k => k.startsWith(v)));
+    case "agent": return Object.keys(AGENTS).some(a => a.startsWith(value));
+    case "role": return ["user", "assistant"].some(r => r.startsWith(value));
+    case "project": return value.length > 0;
+    case "ext": return /^\.?[a-z0-9]*([;,]\.?[a-z0-9]*)*$/i.test(value);
+    case "size": return /^(>=?|<=?)?\d*\.?\d*(b|kb|mb|gb)?(\.\.\d*\.?\d*(b|kb|mb|gb)?)?$/i.test(value);
+    case "date": return /^(t(oday)?|w(eek)?|month|>?\d{0,4}(-\d{0,2}(-\d{0,2})?)?(\.\.\d{0,4}(-\d{0,2}(-\d{0,2})?)?)?|\d+d?)$/i.test(value);
+    case "in": return value.length > 0;
+    default: return false;
+  }
+}
+function tokenize(q) {
+  const toks = [];
+  let i = 0;
+  while (i < q.length) {
+    if (/\s/.test(q[i])) { i++; continue; }
+    const start = i;
+    if (q[i] === '"') {
+      const close = q.indexOf('"', i + 1);
+      if (close === -1) { toks.push({ start, end: q.length, type: "phrase", valid: false }); break; }
+      toks.push({ start, end: close + 1, type: "phrase", valid: true });
+      i = close + 1;
+      continue;
+    }
+    while (i < q.length && !/\s/.test(q[i])) i++;
+    const text = q.slice(start, i);
+    if (text === "OR") { toks.push({ start, end: i, type: "op", valid: true }); continue; }
+    if (text.startsWith("-") && text.length > 1) { toks.push({ start, end: i, type: "exclude", valid: true }); continue; }
+    const m = text.match(/^([A-Za-z]+):(.*)$/);
+    if (m) {
+      const name = m[1].toLowerCase(), value = m[2];
+      const known = DSL_FIELDS.includes(name);
+      toks.push({
+        start, end: i, type: "field",
+        valid: known && validateField(name, value),
+        field: name, value, nameEnd: start + m[1].length + 1,
+      });
+      continue;
+    }
+    toks.push({ start, end: i, type: "term", valid: true });
+  }
+  return toks;
+}
+function queryForcesKind(q) {
+  const t = tokenize(q).find(tk => tk.type === "field" && tk.field === "kind" && tk.valid);
+  return t ? t.value : null;
+}
+
+/* token 染色渲染 */
+function renderHighlight() {
+  const q = $("q").value;
+  const toks = tokenize(q);
+  let html = "", pos = 0;
+  for (const t of toks) {
+    html += esc(q.slice(pos, t.start));
+    const cls = t.valid ? "" : " invalid";
+    if (t.type === "field") {
+      html += `<span class="tk-field${cls}">${esc(q.slice(t.start, t.nameEnd))}</span>` +
+              `<span class="tk-value${cls}">${esc(q.slice(t.nameEnd, t.end))}</span>`;
+    } else {
+      html += `<span class="tk-${t.type}${cls}">${esc(q.slice(t.start, t.end))}</span>`;
+    }
+    pos = t.end;
+  }
+  html += esc(q.slice(pos));
+  $("q-hl").innerHTML = html;
+  $("q-hl").scrollLeft = $("q").scrollLeft;
+}
+
+/* ============ suggest 下拉（agent: / project: / in:） ============ */
+const SG = { open: false, items: [], sel: 0, token: null };
+function suggestTokenAtCaret() {
+  const q = $("q").value, caret = $("q").selectionStart || 0;
+  for (const t of tokenize(q)) {
+    if (t.type === "field" && caret >= t.start && caret <= t.end &&
+        (t.field === "agent" || t.field === "project" || t.field === "in")) {
+      return t;
+    }
+  }
+  return null;
+}
+function suggestCandidates(field, prefix) {
+  const p = prefix.toLowerCase();
+  let pool = [];
+  if (field === "agent") pool = Object.keys(AGENTS);
+  else if (field === "project") pool = FF.suggestCache.projects;
+  else if (field === "in") pool = FF.suggestCache.dirs;
+  return pool.filter(v => v.toLowerCase().startsWith(p)).slice(0, 8);
+}
+function updateSuggest() {
+  const t = suggestTokenAtCaret();
+  if (!t) { closeSuggest(); return; }
+  const items = suggestCandidates(t.field, t.value);
+  if (!items.length) { closeSuggest(); return; }
+  SG.open = true; SG.items = items; SG.sel = 0; SG.token = t;
+  renderSuggest();
+}
+function renderSuggest() {
+  const box = $("suggest");
+  const hint = { agent: "harness", project: "项目", in: "路径前缀" }[SG.token.field] || "";
+  box.innerHTML = SG.items.map((v, i) =>
+    `<div class="sg-item${i === SG.sel ? " sel" : ""}" data-i="${i}">
+       <span class="sg-field">${SG.token.field}:</span><span class="sg-val">${esc(v)}</span>
+       <span class="sg-hint">${hint}</span>
+     </div>`).join("");
+  box.classList.add("open");
+}
+function closeSuggest() { SG.open = false; SG.token = null; $("suggest").classList.remove("open"); }
+function acceptSuggest(i) {
+  const t = SG.token, v = SG.items[i != null ? i : SG.sel];
+  if (!t || v == null) return;
+  const q = $("q");
+  q.value = q.value.slice(0, t.nameEnd) + v + q.value.slice(t.end);
+  const pos = t.nameEnd + v.length;
+  q.setSelectionRange(pos, pos);
+  closeSuggest();
+  renderHighlight();
+  scheduleSearch();
+}
+$("suggest").addEventListener("mousedown", e => {
+  const item = e.target.closest(".sg-item");
+  if (item) { e.preventDefault(); acceptSuggest(+item.dataset.i); }
+});
+function feedSuggestCache(data) {
+  const seenP = new Set(FF.suggestCache.projects);
+  const seenD = new Set(FF.suggestCache.dirs);
+  const addDir = p => {
+    if (!p) return;
+    const norm = String(p).replace(/\\/g, "/");
+    const parts = norm.split("/");
+    // 盘符根 + 上级目录
+    if (parts.length > 1) {
+      const parent = parts.slice(0, -1).join("/");
+      if (parent && !seenD.has(parent)) { seenD.add(parent); FF.suggestCache.dirs.push(parent); }
+    }
+    const root2 = parts.slice(0, Math.min(3, parts.length - 1)).join("/");
+    if (root2 && !seenD.has(root2)) { seenD.add(root2); FF.suggestCache.dirs.push(root2); }
+  };
+  Object.values((data && data.groups) || {}).forEach(list => (list || []).forEach(h => {
+    if (h.project && !seenP.has(h.project)) { seenP.add(h.project); FF.suggestCache.projects.push(h.project); }
+    addDir(h.path || h.cwd);
+  }));
+}
+
+/* ============ Mock 数据（契约 v0.1 结构） ============ */
+const MOCK = (() => {
+  const agents = Object.keys(AGENTS);
+  function hit(kind, q, i, extra) {
+    return Object.assign({
+      kind,
+      title: `${q} 示例${kind === "file" ? "文件" : "条目"} ${i + 1}${kind === "file" ? ".py" : ""}`,
+      path: kind === "session" ? null : `D:/coding/anyfind/demo/${kind}_${i + 1}.md`,
+      snippet: `……这里是命中上下文，关键词 <mark>${esc(q)}</mark> 出现在第 ${i + 3} 行附近，其余内容已按契约用 mark 包裹高亮……`,
+      mtime: `2026-10-${String(12 + i).padStart(2, "0")}T0${i + 1}:30:00`,
+      agent: null, project: null, session_id: null, cwd: null,
+      score: Math.round((0.95 - i * 0.07) * 100) / 100,
+    }, extra || {});
+  }
+  function search(q, kinds) {
+    let kindsWanted = kinds ? kinds.split(",") : null, agentWanted = null;
+    const bare = [];
+    q.split(/\s+/).forEach(tok => {
+      if (tok.startsWith("kind:")) kindsWanted = kindsWanted || tok.slice(5).split(/[,;]/);
+      else if (tok.startsWith("agent:")) agentWanted = tok.slice(6);
+      else if (tok) bare.push(tok);
+    });
+    const kw = bare.join(" ") || "nginx";
+    const groups = { file: [], content: [], session: [], skill: [], memory: [] };
+    for (let i = 0; i < 3; i++) {
+      groups.file.push(hit("file", kw, i, { project: "anyfind" }));
+      groups.content.push(hit("content", kw, i, { project: i ? "agentforge" : "anyfind" }));
+      const ag = agents[i % agents.length];
+      groups.session.push(hit("session", kw, i, {
+        title: `<mark>${esc(kw)}</mark> 部署排障讨论（第 ${i + 1} 轮）`,
+        agent: ag, project: ["anyfind", "aethergate", "hippo"][i],
+        session_id: `mock-sess-${ag}-${i}`, cwd: "D:/coding/anyfind",
+      }));
+      groups.skill.push(hit("skill", kw, i, {
+        title: `skill: ${kw}-helper`,
+        path: `C:/Users/me/.claude/skills/${kw}-helper/SKILL.md`,
+        agent: agents[(i + 1) % agents.length], project: null,
+      }));
+      groups.memory.push(hit("memory", kw, i, {
+        title: `CLAUDE.md — ${kw} 相关约定`,
+        path: `D:/coding/${["anyfind", "aethergate", "agentforge"][i]}/CLAUDE.md`,
+        agent: "claude-code", project: ["anyfind", "aethergate", "agentforge"][i],
+      }));
+    }
+    if (kindsWanted) Object.keys(groups).forEach(k => { if (!kindsWanted.includes(k)) groups[k] = []; });
+    if (agentWanted) ["session", "skill", "memory"].forEach(k => { groups[k] = groups[k].filter(h => h.agent === agentWanted); });
+    return { q, took_ms: 7, groups, truncated: { session: true } };
+  }
+  function session(id) {
+    const ag = (id.split("-")[2] || "codex");
+    return {
+      session_id: id, agent: ag, project: "anyfind", cwd: "D:/coding/anyfind",
+      messages: [
+        { role: "user", ts: "2026-10-12T08:30:00", text: "帮我查一下 nginx 反代 502 的原因，日志在 D:/logs/nginx/error.log" },
+        { role: "assistant", ts: "2026-10-12T08:31:10", text: "看了日志，上游 connect() 超时。先确认 upstream 容器是否健康：\n\ndocker compose ps\n\n如果是间歇性 502，多半是 keepalive 空闲连接被上游先关掉，建议在 proxy_pass 前加：\n\nproxy_http_version 1.1;\nproxy_set_header Connection \"\";" },
+        { role: "user", ts: "2026-10-12T08:33:02", text: "加上了，观察一晚。顺便把这段排查过程记到项目 CLAUDE.md 里" },
+        { role: "assistant", ts: "2026-10-12T08:33:40", text: "已写入 CLAUDE.md 的「运维备忘」一节，包含 502 现象、根因和修复配置。" },
+      ],
+    };
+  }
+  return { search, session };
+})();
+
+function mockRoute(method, path, body) {
+  return new Promise(resolve => setTimeout(() => {    if (path.startsWith("/api/search")) {
+      const u = new URL("http://x" + path);
+      resolve(MOCK.search(u.searchParams.get("q") || "", u.searchParams.get("kinds")));
+    } else if (path.startsWith("/api/session/")) {
+      resolve(MOCK.session(decodeURIComponent(path.slice("/api/session/".length))));
+    } else if (path === "/api/resume") {
+      resolve({ ok: true, command: `${body && body.agent === "claude-code" ? "claude" : (body && body.agent) || "agent"} --resume ${body && body.session_id}  (mock 未真正启动)` });
+    } else if (path === "/api/health") {
+      resolve({ ok: true, version: "mock", index: { files: 128430, sessions: 312, skills: 46, memories: 58 }, indexing: false });
+    } else {
+      resolve({});
+    }
+  }, FF.mockDelay || 60));
+}
+
+/* ============ 搜索与渲染（三点硬修正） ============ */
+let searchTimer, searchSeq = 0;
+
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(doSearch, 250);
+}
+$("q").addEventListener("input", () => {
+  renderHighlight();
+  updateSuggest();
+  scheduleSearch();
+});
+$("q").addEventListener("click", updateSuggest);
+$("q").addEventListener("keyup", e => {
+  if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) updateSuggest();
+});
+$("q").addEventListener("scroll", () => { $("q-hl").scrollLeft = $("q").scrollLeft; });
+
+function showLoading() { $("loading").classList.add("show"); }
+function hideLoading() { $("loading").classList.remove("show"); }
+
+async function doSearch() {
+  const q = $("q").value.trim();
+  const seq = ++searchSeq;
+  if (!q) {
+    FF.lastData = null; FF.pendingKinds = null;
+    $("results-wrap").innerHTML = "";
+    hideLoading();
+    renderStatus(null);
+    setBadges("index");
+    return;
+  }
+  // 查询缓存：同一查询瞬时回放
+  const cached = FF.resultCache.get(q);
+  if (cached) {
+    FF.lastData = cached; FF.pendingKinds = null;
+    renderFiltered();
+    return;
+  }
+  showLoading();
+  try {
+    const forced = queryForcesKind(q);
+    if (forced) {
+      // DSL 已限定 kind：单阶段
+      const full = await apiSearchPath(q, null);
+      if (seq !== searchSeq) return;
+      FF.lastData = full; FF.pendingKinds = null;
+      feedSuggestCache(full);
+      FF.resultCache.set(q, full);
+      renderFiltered();
+    } else {
+      // 流式两阶段：先文件名组，后全部分组（先看到东西）
+      const fast = await apiSearchPath(q, "file");
+      if (seq !== searchSeq) return;
+      FF.lastData = fast;
+      FF.pendingKinds = KIND_KEYS.filter(k => k !== "file");
+      feedSuggestCache(fast);
+      renderFiltered();           // ← 第一次上屏
+      const full = await apiSearchPath(q, null);
+      if (seq !== searchSeq) return;
+      FF.lastData = full; FF.pendingKinds = null;
+      feedSuggestCache(full);
+      FF.resultCache.set(q, full);
+      renderFiltered();           // ← 完整上屏
+    }
+  } catch (e) {
+    if (seq !== searchSeq) return;
+    hideLoading();
+    FF.pendingKinds = null;
+    $("results-wrap").innerHTML =
+      `<div class="empty">连接内核失败：${esc(e.message || e)}${FF.mock ? "" : "<br><br>内核未启动？可在 ⚙ 设置里开启 Mock 模式预览 UI"}</div>`;
+    renderStatus("");
+  }
+}
+
+function statusSuffix() {
+  return FF.mock ? ' <span class="mock-tag">MOCK</span>' : "";
+}
+
+/* 纯客户端过滤渲染：切 tab 零请求 */
+function renderFiltered() {
+  hideLoading();
+  const data = FF.lastData;
+  const box = $("results-wrap");
+  FF.flat = [];
+  FF.sel = -1;
+  if (!data) { box.innerHTML = ""; return; }
+  const groups = data.groups || {};
+  const wanted = FF.kinds ? [FF.kinds] : KIND_KEYS;
+  const pending = FF.pendingKinds || [];
+  let total = 0, html = "";
+  GROUPS.forEach(g => {
+    if (!wanted.includes(g.k)) return;
+    const hits = groups[g.k] || [];
+    if (!hits.length) {
+      if (pending.includes(g.k)) html += pendingGroupHTML(g);
+      return;
+    }
+    total += hits.length;
+    const collapsed = FF.collapsed[g.k] ? " collapsed" : "";
+    const trunc = data.truncated && data.truncated[g.k] ? '<span class="g-trunc">仅前 20 条</span>' : "";
+    html += `<div class="group${collapsed}" data-group="${g.k}">
+      <div class="group-head" data-toggle="${g.k}">
+        <span class="g-icon">${g.icon}</span>
+        <span class="g-label">${g.label}</span>
+        <span class="g-kind">${g.k}</span>
+        <span class="g-count">${hits.length}</span>${trunc}
+        <span class="g-arrow">&#x25BC;</span>
+      </div>
+      <div class="group-body">`;
+    hits.forEach(h => {
+      FF.flat.push({ kind: g.k, hit: h });
+      html += hitHTML(h, g.k, FF.flat.length - 1);
+    });
+    html += `</div></div>`;
+  });
+  if (!total && !html) {
+    box.innerHTML = pending.length
+      ? wanted.map(k => pendingGroupHTML(GROUPS.find(g => g.k === k))).join("")
+      : `<div class="empty">无结果 —— 试试去掉过滤条件，或换个关键词</div>`;
+  } else {
+    box.innerHTML = html;
+  }
+  setBadges("results", groups, data.truncated);
+  const took = data.took_ms != null ? ` · ${data.took_ms}ms` : "";
+  renderStatus(total ? `${total} 条命中${pending.length ? "+" : ""}${took}` : "");
+}
+
+function pendingGroupHTML(g) {
+  return `<div class="group-pending" data-pending="${g.k}">
+    <div class="gp-head"><span class="gp-dot"></span><span class="gp-label">${g.label} 加载中…</span></div>
+    <div class="sk-row"></div><div class="sk-row"></div>
+  </div>`;
+}
+
+let statusNote = "";
+function renderStatus(text) {
+  const el = $("status");
+  el.innerHTML = (text ? esc(text) : "") + statusSuffix() + (statusNote ? ` <span class="idx">${esc(statusNote)}</span>` : "");
+}
+
+function hitHTML(h, kind, idx) {
+  const ico = kind === "file" || kind === "content" ? iconFor(h.title || h.path) : KIND_ICONS[kind];
+  const title = hi(h.title || "(无标题)");
+  const snippet = h.snippet ? `<div class="snippet">${hi(h.snippet)}</div>` : "";
+  const pathLine = h.path ? `<div class="path">${esc(h.path)}</div>` : (h.cwd ? `<div class="path">${esc(h.cwd)}</div>` : "");
+  let meta = "";
+  const ag = h.agent && AGENTS[h.agent];
+  if (ag) meta += `<span class="agent-badge"><span class="a-dot" style="background:${ag.c}"></span>${ag.n}</span>`;
+  else if (h.agent) meta += `<span class="agent-badge"><span class="a-dot" style="background:#999"></span>${esc(h.agent)}</span>`;
+  if (h.project) meta += `<span class="proj-tag">&#x25B8; ${esc(h.project)}</span>`;
+  if (h.mtime) meta += `<span>${fmtTime(h.mtime)}</span>`;
+  if (h.score != null) meta += `<span>${Number(h.score).toFixed(2)}</span>`;
+  return `<div class="result" data-idx="${idx}">
+    <span class="ico">${ico}</span>
+    <div class="info">
+      <div class="name">${title}</div>
+      ${snippet}${pathLine}
+      ${meta ? `<div class="meta">${meta}</div>` : ""}
+    </div>
+    <div class="acts">${actsHTML(h, kind)}</div>
+  </div>`;
+}
+
+function actsHTML(h, kind) {
+  const b = [];
+  if (kind === "session") {
+    b.push(`<button class="primary" data-act="resume">&#x21A9; 跳回会话</button>`);
+    b.push(`<button data-act="preview">预览</button>`);
+  } else {
+    b.push(`<button class="primary" data-act="open">打开</button>`);
+    b.push(`<button data-act="folder">所在文件夹</button>`);
+  }
+  if (h.path) b.push(`<button data-act="copy">复制路径</button>`);
+  return b.join("");
+}
+
+/* 结果区事件委托 */
+$("results-wrap").addEventListener("click", e => {
+  const head = e.target.closest("[data-toggle]");
+  if (head) {
+    const k = head.dataset.toggle;
+    FF.collapsed[k] = !FF.collapsed[k];
+    head.closest(".group").classList.toggle("collapsed", FF.collapsed[k]);
+    return;
+  }
+  const row = e.target.closest(".result");
+  if (!row) return;
+  const idx = +row.dataset.idx;
+  const entry = FF.flat[idx];
+  if (!entry) return;
+  select(idx);
+  const actBtn = e.target.closest("[data-act]");
+  if (actBtn) { e.stopPropagation(); doAction(actBtn.dataset.act, entry); return; }
+  doAction(entry.kind === "session" ? "preview" : "open", entry);
+});
+
+function doAction(act, entry) {
+  const h = entry.hit;
+  switch (act) {
+    case "open":
+      if (invoke && h.path) invoke("open_path", { path: h.path }).catch(e => toast(String(e)));
+      else toast(h.path ? "仅桌面版支持打开文件" : "该条目无磁盘路径");
+      break;
+    case "folder":
+      if (invoke && h.path) invoke("reveal_in_folder", { path: h.path }).catch(e => toast(String(e)));
+      else toast("仅桌面版支持打开文件夹");
+      break;
+    case "copy": copyText(h.path || h.cwd); break;
+    case "preview": openPreview(h); break;
+    case "resume": resumeSession(h); break;
+  }
+}
+
+/* ============ 会话预览 / 跳回 ============ */
+async function openPreview(h) {
+  if (!h.session_id) { toast("该会话缺少 session_id"); return; }
+  FF.session = h;
+  $("preview").classList.add("open");
+  $("pv-title").textContent = (h.title || "会话预览").replace(/<[^>]+>/g, "");
+  const ag = h.agent && AGENTS[h.agent];
+  $("preview-meta").innerHTML =
+    (ag ? `<span class="agent-badge"><span class="a-dot" style="background:${ag.c}"></span>${ag.n}</span>` : "") +
+    (h.project ? `<span class="proj-tag">&#x25B8; ${esc(h.project)}</span>` : "") +
+    (h.cwd ? `<span style="font-family:ui-monospace,Consolas,monospace">${esc(h.cwd)}</span>` : "");
+  $("preview-body").innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const s = await apiSession(h.session_id);
+    if (FF.session !== h) return;
+    const msgs = s.messages || [];
+    const CAP = 300; // 长会话截断渲染，避免一次插入数千节点卡死 UI
+    const shown = msgs.slice(0, CAP);
+    const more = msgs.length > CAP
+      ? `<div class="empty">仅显示前 ${CAP} 条（共 ${msgs.length} 条）</div>` : "";
+    $("preview-body").innerHTML = shown.length ? shown.map(m =>
+      `<div class="msg ${m.role === "user" ? "user" : "assistant"}">
+        <div class="m-role">${m.role === "user" ? "User" : "Assistant"}<span class="m-ts">${fmtTime(m.ts)}</span></div>
+        <div>${hi(m.text)}</div>
+      </div>`).join("") + more
+      : '<div class="empty">无消息内容</div>';
+    $("preview-body").scrollTop = 0;
+  } catch (e) {
+    $("preview-body").innerHTML = `<div class="empty">加载失败：${esc(e.message || e)}</div>`;
+  }
+}
+function closePreview() { $("preview").classList.remove("open"); FF.session = null; $("q").focus(); }
+
+async function resumeSession(h) {
+  if (!h.session_id) { toast("该会话缺少 session_id"); return; }
+  toast("正在启动会话…");
+  try {
+    const r = await apiResume(h, true);
+    if (r && r.ok) {
+      const cmd = r.command || h.session_id;
+      if (r.command) await copyTextRaw(r.command);
+      toast("已启动：" + cmd + (r.command ? "（命令已复制）" : ""), 3500);
+      if (!FF.mock && curWin()) hideWindow();
+    } else {
+      toast("跳回失败：" + ((r && r.error) || "未知错误"), 3500);
+    }
+  } catch (e) {
+    toast("跳回失败：" + (e.message || e), 3500);
+  }
+}
+async function copyResumeCmd(h) {
+  if (!h || !h.session_id) return;
+  try {
+    const r = await apiResume(h, false);
+    if (r && r.ok && r.command) copyText(r.command, "resume 命令已复制");
+    else toast("获取命令失败：" + ((r && r.error) || "未知错误"));
+  } catch (e) { toast("获取命令失败：" + (e.message || e)); }
+}
+$("pv-resume").addEventListener("click", () => { if (FF.session) resumeSession(FF.session); });
+$("pv-copy-cmd").addEventListener("click", () => { if (FF.session) copyResumeCmd(FF.session); });
+
+/* ============ kind 分段控件 ============ */
+const SEG_DEFS = [
+  { k: "",       label: "全部",   accent: "#9db4e8", icon: '<rect x="2" y="2" width="4.2" height="4.2" rx="1.2"/><rect x="7.8" y="2" width="4.2" height="4.2" rx="1.2"/><rect x="2" y="7.8" width="4.2" height="4.2" rx="1.2"/><rect x="7.8" y="7.8" width="4.2" height="4.2" rx="1.2"/>' },
+  { k: "file",   label: "文件",   accent: "#6ea8ff", icon: '<path d="M3.8 1.8h4l3.4 3.4v6.2a1.4 1.4 0 0 1-1.4 1.4H3.8a1.4 1.4 0 0 1-1.4-1.4V3.2a1.4 1.4 0 0 1 1.4-1.4z"/><path d="M7.8 1.8v3.4h3.4"/>' },
+  { k: "content",label: "内容",   accent: "#2dd4bf", icon: '<path d="M2.6 3.6h8.8"/><path d="M2.6 6.6h8.8"/><path d="M2.6 9.6h5.4"/>' },
+  { k: "session",label: "AI 会话", accent: "#f472b6", icon: '<rect x="1.9" y="2.4" width="10.2" height="6.8" rx="2.2"/><path d="M5 9.2l-1.1 2.6 3.4-2.1"/>' },
+  { k: "skill",  label: "技能",   accent: "#fbbf24", icon: '<path d="M7.6 1.4L3.2 7.9h3.3l-.9 4.7 5.2-6.8H7.4z"/>' },
+  { k: "memory", label: "记忆",   accent: "#a78bfa", icon: '<path d="M7 2.6v8.8"/><path d="M7 3.6C6.5 2.7 5.6 2.1 4.6 2.1 3.2 2.1 2.1 3.2 2.1 4.6c0 .5.13.9.35 1.3A2.4 2.4 0 0 0 2 8.1c0 1.3 1.1 2.4 2.4 2.4.9 0 1.7-.4 2.1-1.1"/><path d="M7 3.6c.5-.9 1.4-1.5 2.4-1.5 1.4 0 2.5 1.1 2.5 2.5 0 .5-.13.9-.35 1.3.4.6.46 1.3.46 2.2 0 1.3-1.1 2.4-2.4 2.4-.9 0-1.7-.4-2.1-1.1"/>' },
+];
+const segEls = {};
+
+function fmtCount(n) {
+  if (n == null) return "";
+  if (n >= 1e8) return (n / 1e8).toFixed(1).replace(/\.0$/, "") + " 亿";
+  if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + " 万";
+  return String(n);
+}
+
+function moveSegIndicator(animate) {
+  const seg = $("seg"), ind = $("seg-ind");
+  const btn = seg.querySelector(".seg.active");
+  if (!btn) return;
+  if (!animate) ind.style.transition = "none";
+  ind.style.left = btn.offsetLeft + "px";
+  ind.style.width = btn.offsetWidth + "px";
+  seg.style.setProperty("--accent", SEG_DEFS.find(d => d.k === FF.kinds).accent);
+  if (!animate) requestAnimationFrame(() => { ind.style.transition = ""; });
+}
+
+/* 硬修正 1：切 tab 只重渲染缓存数据，不发任何请求 */
+function activateSeg(kind, focus) {
+  FF.kinds = kind;
+  Object.entries(segEls).forEach(([k, b]) => {
+    b.classList.toggle("active", k === kind);
+    b.tabIndex = k === kind ? 0 : -1;
+  });
+  moveSegIndicator(true);
+  if (focus && segEls[kind]) segEls[kind].focus();
+  renderFiltered();
+}
+
+(function buildSeg() {
+  const wrap = $("kinds-wrap");
+  const seg = document.createElement("div");
+  seg.id = "seg";
+  seg.setAttribute("role", "tablist");
+  const ind = document.createElement("div");
+  ind.id = "seg-ind";
+  seg.appendChild(ind);
+  SEG_DEFS.forEach(d => {
+    const b = document.createElement("button");
+    b.className = "seg" + (d.k === "" ? " active" : "");
+    b.dataset.kind = d.k;
+    b.tabIndex = d.k === "" ? 0 : -1;
+    b.style.setProperty("--sa", d.accent);
+    b.setAttribute("role", "tab");
+    b.innerHTML =
+      `<svg class="seg-ico" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${d.icon}</svg>` +
+      `<span>${d.label}</span><span class="seg-count"></span>`;
+    b.addEventListener("click", () => activateSeg(d.k));
+    b.addEventListener("keydown", e => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const i = SEG_DEFS.findIndex(x => x.k === FF.kinds);
+      const j = (i + (e.key === "ArrowRight" ? 1 : -1) + SEG_DEFS.length) % SEG_DEFS.length;
+      activateSeg(SEG_DEFS[j].k, true);
+    });
+    segEls[d.k] = b;
+    seg.appendChild(b);
+  });
+  wrap.appendChild(seg);
+  requestAnimationFrame(() => moveSegIndicator(false));
+  window.addEventListener("resize", () => moveSegIndicator(false));
+})();
+
+function setBadges(mode, groups, truncated) {
+  const counts = {};
+  if (mode === "results" && groups) {
+    let sum = 0, anyTrunc = false;
+    SEG_DEFS.forEach(d => {
+      if (!d.k) return;
+      const n = (groups[d.k] || []).length;
+      counts[d.k] = n ? String(n) + (truncated && truncated[d.k] ? "+" : "") : "";
+      sum += n;
+      if (truncated && truncated[d.k]) anyTrunc = true;
+    });
+    counts[""] = sum ? String(sum) + (anyTrunc ? "+" : "") : "";
+  } else {
+    const idx = FF.indexCounts || {};
+    counts[""] = fmtCount((idx.files || 0) + (idx.sessions || 0) + (idx.skills || 0) + (idx.memories || 0)) || "";
+    counts.file = fmtCount(idx.files);
+    counts.content = "";
+    counts.session = fmtCount(idx.sessions);
+    counts.skill = fmtCount(idx.skills);
+    counts.memory = fmtCount(idx.memories);
+  }
+  Object.entries(segEls).forEach(([k, b]) => {
+    b.querySelector(".seg-count").textContent = counts[k] || "";
+  });
+}
+
+/* ============ 键盘导航 ============ */
+function select(idx) {
+  const rows = document.querySelectorAll(".result");
+  rows.forEach(r => r.classList.remove("focused"));
+  FF.sel = idx;
+  const row = document.querySelector(`.result[data-idx="${idx}"]`);
+  if (row) { row.classList.add("focused"); row.scrollIntoView({ block: "nearest" }); }
+}
+$("q").addEventListener("keydown", e => {
+  if (SG.open) {
+    if (e.key === "ArrowDown") { SG.sel = (SG.sel + 1) % SG.items.length; renderSuggest(); e.preventDefault(); return; }
+    if (e.key === "ArrowUp") { SG.sel = (SG.sel - 1 + SG.items.length) % SG.items.length; renderSuggest(); e.preventDefault(); return; }
+    if (e.key === "Enter" || e.key === "Tab") { acceptSuggest(); e.preventDefault(); return; }
+    if (e.key === "Escape") { closeSuggest(); e.preventDefault(); e.stopPropagation(); return; }
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!FF.flat.length) return;
+    const next = e.key === "ArrowDown"
+      ? Math.min(FF.sel + 1, FF.flat.length - 1)
+      : Math.max(FF.sel - 1, 0);
+    select(next);
+    e.preventDefault();
+  } else if (e.key === "Enter") {
+    const entry = FF.flat[FF.sel >= 0 ? FF.sel : 0];
+    if (entry) doAction(entry.kind === "session" ? "preview" : "open", entry);
+    e.preventDefault();
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (SG.open) { closeSuggest(); return; }
+  if ($("preview").classList.contains("open")) { closePreview(); return; }
+  if (closePopovers()) return;
+  hideWindow();
+});
+
+/* ============ 弹层：语法卡 / 设置 ============ */
+function closePopovers() {
+  let closed = false;
+  document.querySelectorAll(".popover.open").forEach(p => { p.classList.remove("open"); closed = true; });
+  return closed;
+}
+function togglePopover(id) {
+  const wasOpen = $(id).classList.contains("open");
+  closePopovers();
+  if (!wasOpen) $(id).classList.add("open");
+}
+$("syntax-btn").addEventListener("click", e => { e.stopPropagation(); togglePopover("syntax-card"); });
+$("gear").addEventListener("click", e => { e.stopPropagation(); togglePopover("settings-card"); });
+document.addEventListener("click", e => {
+  if (!e.target.closest(".popover") && !e.target.closest("#syntax-btn") && !e.target.closest("#gear")) closePopovers();
+});
+document.querySelectorAll("#syntax-card [data-ins]").forEach(el => {
+  el.addEventListener("click", () => {
+    const q = $("q");
+    q.value = (q.value ? q.value.replace(/\s+$/, "") + " " : "") + el.dataset.ins;
+    q.focus();
+    q.setSelectionRange(q.value.length, q.value.length);
+    renderHighlight();
+    updateSuggest();
+    closePopovers();
+  });
+});
+
+/* ============ 设置：热键 / 内核地址 / 自启 / mock ============ */
+const HOTKEY_DISPLAY = c => c.split("+").map(p => p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)).join("+");
+function setHotkeyUI(combo) {
+  FF.hotkey = combo;
+  $("hotkey-input").value = HOTKEY_DISPLAY(combo);
+  $("hotkey-hint").textContent = HOTKEY_DISPLAY(combo);
+}
+(function initHotkeyRecorder() {
+  const inp = $("hotkey-input");
+  inp.addEventListener("click", () => { inp.classList.add("recording"); inp.value = "按新组合键…"; });
+  inp.addEventListener("blur", () => { inp.classList.remove("recording"); setHotkeyUI(FF.hotkey); });
+  inp.addEventListener("keydown", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+    const parts = [];
+    if (e.ctrlKey) parts.push("ctrl");
+    if (e.shiftKey) parts.push("shift");
+    if (e.altKey) parts.push("alt");
+    if (e.metaKey) parts.push("win");
+    let key = e.key.toLowerCase();
+    if (key === " ") key = "space";
+    parts.push(key);
+    const combo = parts.join("+");
+    inp.classList.remove("recording");
+    inp.blur();
+    if (invoke) {
+      invoke("set_hotkey", { combo }).then(() => {
+        FF.cfg.hotkey = combo;
+        setHotkeyUI(combo);
+        toast("热键已更新为 " + HOTKEY_DISPLAY(combo));
+      }).catch(err => {
+        setHotkeyUI(FF.hotkey);
+        toast("热键设置失败：" + String(err));
+      });
+    } else {
+      FF.cfg.hotkey = combo;
+      saveConfig();
+      setHotkeyUI(combo);
+      toast("浏览器模式：热键仅在桌面版生效");
+    }
+  });
+})();
+
+$("kernel-save").addEventListener("click", async () => {
+  const v = $("kernel-input").value.trim();
+  if (!/^https?:\/\//.test(v)) { toast("内核地址需以 http:// 开头"); return; }
+  FF.cfg.kernel_url = v;
+  await saveConfig();
+  FF.resultCache.clear();
+  toast("内核地址已保存");
+  loadHealth();
+  doSearch();
+});
+
+$("autostart-switch").addEventListener("click", async () => {
+  const next = !$("autostart-switch").classList.contains("on");
+  if (invoke) {
+    try {
+      await invoke("set_autostart", { enabled: next });
+      FF.cfg.autostart = next;
+      $("autostart-switch").classList.toggle("on", next);
+      toast(next ? "已开启开机自启" : "已关闭开机自启");
+    } catch (e) { toast("自启设置失败：" + String(e)); }
+  } else {
+    FF.cfg.autostart = next;
+    saveConfig();
+    $("autostart-switch").classList.toggle("on", next);
+    toast("浏览器模式：自启仅在桌面版生效");
+  }
+});
+
+$("mock-switch").addEventListener("click", () => {
+  FF.mock = !FF.mock;
+  FF.cfg.mock = FF.mock;
+  saveConfig();
+  localStorage.setItem("ff.mock", FF.mock ? "1" : "");
+  $("mock-switch").classList.toggle("on", FF.mock);
+  toast(FF.mock ? "Mock 模式已开启" : "Mock 模式已关闭");
+  FF.resultCache.clear();
+  loadHealth();
+  doSearch();
+});
+
+/* ============ 健康检查 / 引导页 ============ */
+let healthRetryTimer = null;
+async function loadHealth() {
+  const h = await apiHealth();
+  statusNote = "";
+  FF.indexCounts = null;
+  if (h && h.index) {
+    FF.indexCounts = h.index;
+    if (h.indexing) statusNote = "索引中…";
+    $("onboard").classList.remove("show");
+  } else if (!FF.mock) {
+    statusNote = "内核未连接";
+    $("ob-url").textContent = kernelBase();
+    $("onboard").classList.add("show");
+    // 内核拉起后自动恢复（5s 轮询，仅在引导页显示时）
+    clearTimeout(healthRetryTimer);
+    healthRetryTimer = setTimeout(() => {
+      if ($("onboard").classList.contains("show") && !FF.mock) loadHealth();
+    }, 5000);
+  } else {
+    $("onboard").classList.remove("show");
+  }
+  if (!$("q").value.trim()) setBadges("index");
+  renderStatus($("q").value.trim() ? $("status").textContent.replace(/ ·.*$/, "") : "");
+}
+$("ob-retry").addEventListener("click", loadHealth);
+$("ob-settings").addEventListener("click", () => togglePopover("settings-card"));
+$("ob-mock").addEventListener("click", () => { if (!FF.mock) $("mock-switch").click(); });
+
+/* ============ 初始化 ============ */
+(async function init() {
+  await loadConfig();
+  const urlMock = new URLSearchParams(location.search).get("mock");
+  FF.mock = urlMock != null ? urlMock !== "0" : (FF.cfg.mock === true || localStorage.getItem("ff.mock") === "1");
+  $("mock-switch").classList.toggle("on", FF.mock);
+  $("kernel-input").value = kernelBase();
+  setHotkeyUI(FF.cfg.hotkey || "ctrl+shift+f");
+  if (invoke) {
+    try { $("autostart-switch").classList.toggle("on", !!(await invoke("get_autostart"))); } catch (e) {}
+  } else {
+    $("autostart-switch").classList.toggle("on", !!FF.cfg.autostart);
+  }
+  renderHighlight();
+  loadHealth();
+  $("q").focus();
+})();
+
+/* ============ 流体背景（静态摆放） ============
+   原 60fps rAF 漂移 + SMIL 滤镜动画会让全屏 backdrop-filter 每帧重算，
+   在无 GPU 加速/软渲染环境（远程桌面、部分显卡）直接打满渲染主线程，
+   表现为"一点就卡、窗口无响应"。改为静态摆放：视觉保留液态玻璃，空闲 0 CPU。 */
+(function placeFluid() {
+  const layers = [
+    document.querySelector(".fl1"), document.querySelector(".fl2"),
+    document.querySelector(".fl3"), document.querySelector(".fl4")
+  ];
+  const pose = [
+    { ax: 6, ay: 4, px: 0, py: 1.2, sx: 10, sy: 4 },
+    { ax: 5, ay: 6, px: 2.3, py: 0.8, sx: 5, sy: -6 },
+    { ax: 4, ay: 4, px: 0.9, py: 0.3, sx: -8, sy: 3 },
+    { ax: 7, ay: 3, px: 1.7, py: 2.1, sx: 3, sy: -5 },
+  ];
+  layers.forEach((el, i) => {
+    if (!el) return;
+    const p = pose[i];
+    el.style.transform = `translate(${p.sx}%, ${p.sy}%) scale(1.03)`;
+  });
+})();
+</script>
+</body>
+</html>

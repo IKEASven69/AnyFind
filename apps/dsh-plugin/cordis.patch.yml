@@ -1,0 +1,10 @@
+# dsh-recall bundle patch：把统一搜索插件插入 profile 合成。
+# host 半：/dsh-recall/api/* 内核代理路由 + recall_search 工具 + /recall 斜杠命令；
+# 浏览器半由 package.json 的 dsh.client 声明 + exports["./client"] 提供。
+# config.endpoint：统一搜索内核地址（默认 http://127.0.0.1:8790，可改）。
+
+- insert:
+    - id: recall
+      name: 'dsh-recall'
+      config:
+        endpoint: 'http://127.0.0.1:8790'

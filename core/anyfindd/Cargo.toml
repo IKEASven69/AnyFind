@@ -1,0 +1,11 @@
+[package]
+name = "anyfindd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyfind-core = { path = "../anyfind-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+tiny_http = "0.12"

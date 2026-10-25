@@ -1,0 +1,32 @@
+[package]
+name = "anyfind-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+zstd = { workspace = true }
+walkdir = { workspace = true }
+chrono = { workspace = true }
+pinyin = "0.10"
+rayon = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+tempfile = "3"
+
+[[bench]]
+name = "latency"
+harness = false

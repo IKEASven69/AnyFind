@@ -1,0 +1,16 @@
+[package]
+name = "bench-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# 选型实验专用：rusqlite FTS5 (trigram) vs Tantivy，真实语料基准。
+# 结论落在 docs/bench-001.md；此 crate 不进发布产物。
+
+[dependencies]
+anyfind-core = { path = "../anyfind-core" }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tantivy = "0.22"
+walkdir = { workspace = true }
