@@ -7353,12 +7353,12 @@ function flattenHits(resp) {
 function formatForAgent(resp) {
   const hits = flattenHits(resp);
   if (hits.length === 0) {
-    return `recall_search: \u300C${resp.q}\u300D\u5728\u5168\u90E8\u5386\u53F2\uFF08\u6587\u4EF6/\u4F1A\u8BDD/\u6280\u80FD/\u8BB0\u5FC6\uFF09\u4E2D\u6CA1\u6709\u547D\u4E2D\u3002\u53EF\u6362\u5173\u952E\u8BCD\uFF0C\u6216\u53BB\u6389\u8FC7\u6EE4\u6761\u4EF6\u91CD\u8BD5\u3002`;
+    return `anyfind_search: \u300C${resp.q}\u300D\u5728\u5168\u90E8\u5386\u53F2\uFF08\u6587\u4EF6/\u4F1A\u8BDD/\u6280\u80FD/\u8BB0\u5FC6\uFF09\u4E2D\u6CA1\u6709\u547D\u4E2D\u3002\u53EF\u6362\u5173\u952E\u8BCD\uFF0C\u6216\u53BB\u6389\u8FC7\u6EE4\u6761\u4EF6\u91CD\u8BD5\u3002`;
   }
   const truncated = Object.entries(resp.truncated ?? {}).filter(([, v]) => v).map(([k]) => KIND_LABEL[k] ?? k);
   const lines = hits.map(hitLine);
   return [
-    `recall_search\u300C${resp.q}\u300D\u547D\u4E2D ${hits.length} \u6761` + (resp.took_ms !== void 0 ? `\uFF08${resp.took_ms}ms\uFF09` : "") + (truncated.length > 0 ? `\uFF0C${truncated.join("/")}\u7EC4\u7ED3\u679C\u88AB\u622A\u65AD\uFF08\u53EF\u52A0 limit \u6216\u6536\u7A84\u5173\u952E\u8BCD\uFF09` : "") + "\uFF1A",
+    `anyfind_search\u300C${resp.q}\u300D\u547D\u4E2D ${hits.length} \u6761` + (resp.took_ms !== void 0 ? `\uFF08${resp.took_ms}ms\uFF09` : "") + (truncated.length > 0 ? `\uFF0C${truncated.join("/")}\u7EC4\u7ED3\u679C\u88AB\u622A\u65AD\uFF08\u53EF\u52A0 limit \u6216\u6536\u7A84\u5173\u952E\u8BCD\uFF09` : "") + "\uFF1A",
     ...lines,
     "",
     "\u5F15\u7528\u65F6\u8BF7\u9644\u6765\u6E90\uFF08agent \xB7 \u9879\u76EE \xB7 \u65E5\u671F\uFF09\uFF1Bsession_id \u53EF\u7528\u4E8E\u8DF3\u56DE\u539F\u6587\u4F1A\u8BDD\u3002"
@@ -7384,7 +7384,7 @@ function formatForCommand(resp) {
 }
 
 // src/index.ts
-var name = "dsh-recall";
+var name = "dsh-anyfind";
 var DEFAULT_ENDPOINT2 = "http://127.0.0.1:8790";
 function discoverEndpoint(configPath) {
   const path = configPath ?? (process.env.APPDATA ? join(process.env.APPDATA, "anyfind", "config.json") : "");
@@ -7405,7 +7405,7 @@ function renderText(_args, value) {
 }
 async function runSearch(query, kinds, limit) {
   const q = query.trim();
-  if (q === "") return { ok: false, text: "\u7528\u6CD5\uFF1A/recall <\u5173\u952E\u8BCD>\uFF08\u5173\u952E\u8BCD\u4E0D\u80FD\u4E3A\u7A7A\uFF09" };
+  if (q === "") return { ok: false, text: "\u7528\u6CD5\uFF1A/anyfind <\u5173\u952E\u8BCD>\uFF08\u5173\u952E\u8BCD\u4E0D\u80FD\u4E3A\u7A7A\uFF09" };
   try {
     const resp = await kernelSearch({ q, kinds, limit });
     return { ok: true, text: formatForCommand(resp), agentText: formatForAgent(resp) };
@@ -7414,9 +7414,9 @@ async function runSearch(query, kinds, limit) {
     return { ok: false, text: e instanceof Error ? e.message : String(e) };
   }
 }
-function registerRecallTool(ctx) {
+function registerAnyfindTool(ctx) {
   ctx.effect(() => ctx.tools.register(defineTool({
-    name: "recall_search",
+    name: "anyfind_search",
     description: '\u641C\u7D22\u672C\u673A\u7EDF\u4E00\u7D22\u5F15\u7684\u5168\u90E8\u5386\u53F2\uFF1A\u6587\u4EF6\u3001\u6587\u6863\u5185\u5BB9\u3001\u516D\u5BB6 AI harness\uFF08Claude Code/Codex/dsh/opencode/Pi/Cursor\uFF09\u7684\u5386\u53F2\u4F1A\u8BDD\u3001agent \u8BB0\u5FC6\u4E0E\u6280\u80FD\u6587\u4EF6\u3002\u5F53\u7528\u6237\u63D0\u5230"\u4EE5\u524D\u505A\u8FC7/\u914D\u8FC7/\u8BA8\u8BBA\u8FC7/\u8E29\u8FC7\u5751"\u67D0\u4E8B\uFF0C\u6216\u9700\u8981\u5F15\u7528\u5386\u53F2\u4F1A\u8BDD\u4E0E\u8BB0\u5FC6\u7684\u4E0A\u4E0B\u6587\u65F6\uFF0C\u7528\u6B64\u5DE5\u5177\u641C\u7D22\u2014\u2014\u4E0D\u8981\u51ED\u6A21\u578B\u8BB0\u5FC6\u731C\u6D4B\u3002\u652F\u6301\u8FC7\u6EE4\u8BED\u6CD5 kind: agent: date: ext: project:\u3002',
     parameters: {
       query: { type: "string", required: true, description: '\u641C\u7D22\u5173\u952E\u8BCD\u6216\u8FC7\u6EE4\u8BED\u6CD5\u7EC4\u5408\uFF0C\u5982 "nginx \u53CD\u4EE3" \u6216 "kind:session agent:codex \u6784\u5EFA\u8E29\u5751"' },
@@ -7426,13 +7426,13 @@ function registerRecallTool(ctx) {
     output: { schema: { type: "string" }, render: renderText },
     async execute(args) {
       const query = (args.query ?? "").trim();
-      if (query === "") return "recall_search: query \u4E0D\u80FD\u4E3A\u7A7A";
+      if (query === "") return "anyfind_search: query \u4E0D\u80FD\u4E3A\u7A7A";
       const kinds = typeof args.kinds === "string" ? args.kinds.split(",").map((k) => k.trim()).filter((k) => k !== "") : void 0;
       const limit = Math.min(Math.max(args.limit ?? 8, 1), 20);
       const r = await runSearch(query, kinds, limit);
       return r.ok ? r.agentText : r.text;
     }
-  })), "dsh-recall: recall_search");
+  })), "dsh-anyfind: anyfind_search");
 }
 function sendJson(response, code, body) {
   response.writeHead(code, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -7506,7 +7506,7 @@ function registerRoutes(ctx, host) {
   return [
     host.webServer.register({
       kind: "exact",
-      path: "/dsh-recall/api/health",
+      path: "/dsh-anyfind/api/health",
       handler: (request2, response) => {
         if (!admitRequest(host, request2, response)) return;
         proxyCall(response, async () => ({ ...await kernelHealth(), endpoint: getEndpoint() }));
@@ -7514,7 +7514,7 @@ function registerRoutes(ctx, host) {
     }),
     host.webServer.register({
       kind: "exact",
-      path: "/dsh-recall/api/search",
+      path: "/dsh-anyfind/api/search",
       handler: (request2, response) => {
         if (!admitRequest(host, request2, response)) return;
         const url = new URL(request2.url ?? "/", "http://localhost");
@@ -7531,7 +7531,7 @@ function registerRoutes(ctx, host) {
     }),
     host.webServer.register({
       kind: "exact",
-      path: "/dsh-recall/api/resume",
+      path: "/dsh-anyfind/api/resume",
       handler: (request2, response) => {
         if (!admitRequest(host, request2, response)) return;
         if (request2.method !== "POST") {
@@ -7557,7 +7557,7 @@ function registerRoutes(ctx, host) {
     }),
     host.webServer.register({
       kind: "exact",
-      path: "/dsh-recall/api/config",
+      path: "/dsh-anyfind/api/config",
       handler: (request2, response) => {
         if (!admitRequest(host, request2, response)) return;
         if (request2.method === "GET") {
@@ -7591,28 +7591,28 @@ function apply(ctx, config) {
     try {
       setEndpoint(config.endpoint);
     } catch (e) {
-      ctx.logger.warn(`dsh-recall: config.endpoint \u975E\u6CD5\uFF08${e instanceof Error ? e.message : String(e)}\uFF09\uFF0C\u56DE\u9000\u81EA\u52A8\u53D1\u73B0`);
+      ctx.logger.warn(`dsh-anyfind: config.endpoint \u975E\u6CD5\uFF08${e instanceof Error ? e.message : String(e)}\uFF09\uFF0C\u56DE\u9000\u81EA\u52A8\u53D1\u73B0`);
       setEndpoint(discoverEndpoint());
     }
   } else {
     setEndpoint(discoverEndpoint());
   }
-  ctx.logger.info(`dsh-recall: \u7EDF\u4E00\u641C\u7D22\u5DF2\u52A0\u8F7D\uFF08\u5185\u6838 ${getEndpoint()}\uFF09`);
+  ctx.logger.info(`dsh-anyfind: \u7EDF\u4E00\u641C\u7D22\u5DF2\u52A0\u8F7D\uFF08\u5185\u6838 ${getEndpoint()}\uFF09`);
   ctx.inject(["tools"], (tc) => {
-    registerRecallTool(tc);
+    registerAnyfindTool(tc);
   });
   ctx.inject(["commands"], (cc) => {
     const commands = cc.commands;
     if (commands === void 0 || typeof commands.register !== "function") return;
     cc.effect(() => commands.register({
-      name: "recall",
+      name: "anyfind",
       description: "\u7EDF\u4E00\u641C\u7D22\u5168\u90E8\u5386\u53F2\uFF08\u6587\u4EF6/\u4F1A\u8BDD/\u6280\u80FD/\u8BB0\u5FC6\uFF09",
       input: { hint: "\u5173\u952E\u8BCD\uFF0C\u652F\u6301 kind: agent: date: ext: project: \u8FC7\u6EE4" },
       handler: async (invocation) => {
         const r = await runSearch(invocation.rawInput, void 0, 8);
         return r.ok ? { kind: "success", text: r.text } : { kind: "error", text: r.text };
       }
-    }), "dsh-recall: /recall");
+    }), "dsh-anyfind: /anyfind");
   });
   ctx.inject(["webServer"], (host) => {
     host.effect(() => {
@@ -7620,7 +7620,7 @@ function apply(ctx, config) {
       return () => {
         for (const d of disposers) d();
       };
-    }, "dsh-recall: http routes");
+    }, "dsh-anyfind: http routes");
   });
 }
 export {

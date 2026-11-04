@@ -1,5 +1,5 @@
 /**
- * dsh-recall 浏览器半：Spotlight 式居中搜索浮层。
+ * dsh-anyfind 浏览器半：Spotlight 式居中搜索浮层。
  * v3 形态（最终拍板）：
  *   - 主形态 = 居中浮层（shell.overlay 机制，与 dsh-hippo MemoryOverlay 同套）：
  *     Ctrl+K 呼出（宿主/已装插件均无此组合占用，已排查），Esc/点遮罩关闭，
@@ -10,8 +10,8 @@
  *     只支持开 tab 不支持自定义动作，占位是干净方案）；
  *   - 浮层内容 = 面板整套（分段控件/瞬时切 tab/居中 loading/token 染色/语法卡/
  *     跳回会话/内核设置），居中 680px（max 90vw），分段控件不再受窄面板限制。
- * 数据通路：同源 fetch /dsh-recall/api/*（host 半代理到内核，避开 CORS）。
- * @module dsh-recall/client
+ * 数据通路：同源 fetch /dsh-anyfind/api/*（host 半代理到内核，避开 CORS）。
+ * @module dsh-anyfind/client
  */
 
 import { createElement, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -298,7 +298,7 @@ function coreDown(body: { error?: string; endpoint?: string }, fallback: string)
 }
 
 async function getHealth(): Promise<HealthState> {
-  const res = await fetch('/dsh-recall/api/health', { cache: 'no-store' })
+  const res = await fetch('/dsh-anyfind/api/health', { cache: 'no-store' })
   const body = await res.json() as HealthState & { down?: boolean; error?: string }
   if (!res.ok || body.down === true) throw coreDown(body, `HTTP ${res.status}`)
   return body
@@ -307,7 +307,7 @@ async function getHealth(): Promise<HealthState> {
 /** 一次拉全量 groups（不带 kinds）——kind 切换纯客户端过滤，零请求。 */
 async function getSearch(q: string): Promise<SearchResponse> {
   const url = new URLSearchParams({ q, limit: '10' })
-  const res = await fetch(`/dsh-recall/api/search?${url.toString()}`, { cache: 'no-store' })
+  const res = await fetch(`/dsh-anyfind/api/search?${url.toString()}`, { cache: 'no-store' })
   const body = await res.json() as SearchResponse & { down?: boolean; error?: string; endpoint?: string }
   if (body.down === true) throw coreDown(body, '内核未启动')
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
@@ -315,7 +315,7 @@ async function getSearch(q: string): Promise<SearchResponse> {
 }
 
 async function postResume(hit: Hit): Promise<string> {
-  const res = await fetch('/dsh-recall/api/resume', {
+  const res = await fetch('/dsh-anyfind/api/resume', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ agent: hit.agent, session_id: hit.session_id, cwd: hit.cwd }),
@@ -458,7 +458,7 @@ function SegControl({ active, counts, onChange }: {
 // 展示件
 // ---------------------------------------------------------------------------
 
-function RecallMark({ size = 16 }: { size?: number }): ReturnType<typeof createElement> {
+function AnyfindMark({ size = 16 }: { size?: number }): ReturnType<typeof createElement> {
   return createElement('svg', { width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': true, fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinecap: 'round' },
     createElement('circle', { cx: 10.5, cy: 10.5, r: 6.5 }),
     createElement('line', { x1: 15.5, y1: 15.5, x2: 21, y2: 21 }),
@@ -541,7 +541,7 @@ function LoadingState(): ReturnType<typeof createElement> {
 // 面板（浮层主体；上下键导航 + Enter 主动作）
 // ---------------------------------------------------------------------------
 
-function RecallPanel(): ReturnType<typeof createElement> {
+function AnyfindPanel(): ReturnType<typeof createElement> {
   const [health, setHealth] = useState<HealthState | null>(null)
   const [downDetail, setDownDetail] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -806,7 +806,7 @@ function RecallPanel(): ReturnType<typeof createElement> {
 // Spotlight 浮层（shell.overlay 机制，与 dsh-hippo MemoryOverlay 同套）
 // ---------------------------------------------------------------------------
 
-function RecallOverlay(): ReturnType<typeof createElement> | null {
+function AnyfindOverlay(): ReturnType<typeof createElement> | null {
   const open = useSyncExternalStore(overlayStore.subscribe, () => overlayStore.open)
 
   // 全局热键：Ctrl+K 呼出/关闭（宿主核心包与已装插件均无此组合占用——已排查
@@ -838,7 +838,7 @@ function RecallOverlay(): ReturnType<typeof createElement> | null {
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) overlayStore.close() },
   },
     createElement('div', { className: 'rc-modal', role: 'dialog', 'aria-label': '统一搜索' },
-      createElement(RecallPanel),
+      createElement(AnyfindPanel),
     ),
   )
 }
@@ -849,7 +849,7 @@ function RecallOverlay(): ReturnType<typeof createElement> | null {
  *  官方直注册路径无已知 closeTab API，退化为提示卡 + 重新打开按钮。 */
 let bootAt = 0
 
-function RecallTabPlaceholder(props: TabComponentPropsLike): ReturnType<typeof createElement> {
+function AnyfindTabPlaceholder(props: TabComponentPropsLike): ReturnType<typeof createElement> {
   useEffect(() => {
     const isRestore = Date.now() - bootAt <= 5000
     if (!isRestore) overlayStore.show()
@@ -868,7 +868,7 @@ function RecallTabPlaceholder(props: TabComponentPropsLike): ReturnType<typeof c
   return createElement('div', { className: 'rc-panel' },
     createElement(StyleTag),
     createElement('div', { className: 'rc-ph' },
-      createElement(RecallMark, { size: 28 }),
+      createElement(AnyfindMark, { size: 28 }),
       createElement('div', { className: 'rc-ph-t' }, '搜索以浮层打开'),
       createElement('div', null, '按 ', createElement('kbd', null, 'Ctrl+K'), ' 随时呼出 / Esc 关闭'),
       createElement('button', { className: 'rc-btn rc-btn-pri', onClick: () => { overlayStore.show() } }, '重新打开搜索'),
@@ -876,14 +876,14 @@ function RecallTabPlaceholder(props: TabComponentPropsLike): ReturnType<typeof c
   )
 }
 
-function RecallTabTitle(): ReturnType<typeof createElement> {
+function AnyfindTabTitle(): ReturnType<typeof createElement> {
   return createElement('span', {
     style: { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--dsw-alias-label-primary, inherit)' },
-  }, createElement(RecallMark, { size: 14 }), '搜索')
+  }, createElement(AnyfindMark, { size: 14 }), '搜索')
 }
 
-function RecallGuideIcon(props?: { size?: number }): ReturnType<typeof createElement> {
-  return createElement(RecallMark, { size: props?.size ?? 22 })
+function AnyfindGuideIcon(props?: { size?: number }): ReturnType<typeof createElement> {
+  return createElement(AnyfindMark, { size: props?.size ?? 22 })
 }
 
 export function apply(ctx: Context): void {
@@ -893,7 +893,7 @@ export function apply(ctx: Context): void {
     || typeof (slots as { inject?: unknown }).inject !== 'function'
     || typeof (slots as { register?: unknown }).register !== 'function'
   ) {
-    console.warn('[dsh-recall] 宿主未提供可用的 slots 服务（需要 @deepseek-ai/dsh-client-ui-renderer），搜索浮层跳过挂载')
+    console.warn('[dsh-anyfind] 宿主未提供可用的 slots 服务（需要 @deepseek-ai/dsh-client-ui-renderer），搜索浮层跳过挂载')
     return
   }
   const dyn = ctx.slots as unknown as DynamicSlots
@@ -901,32 +901,32 @@ export function apply(ctx: Context): void {
 
   // 主形态：shell.overlay 浮层（Ctrl+K 呼出；dsh-hippo 同套机制）
   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
-    { name: 'shell.overlay', id: 'recall-spotlight', order: 48 },
-    () => createElement(RecallOverlay),
+    { name: 'shell.overlay', id: 'anyfind-spotlight', order: 48 },
+    () => createElement(AnyfindOverlay),
   ))
 
-  // 入口保留但点击改为呼出浮层：占位 tab（挂载即 show + 提示卡）。双路径互斥，kind 固定 'recall'。
+  // 入口保留但点击改为呼出浮层：占位 tab（挂载即 show + 提示卡）。双路径互斥，kind 固定 'anyfind'。
   const registerDirectTab = (tabs: SidebarRightTabsRegistry): (() => void) => {
     const disposeType = tabs.register({
-      id: 'dsh-recall',
-      kind: 'recall',
+      id: 'dsh-anyfind',
+      kind: 'anyfind',
       keepMounted: false,
       title: () => '搜索',
       guide: [{
-        id: 'recall',
+        id: 'anyfind',
         order: 62,
         title: () => '搜索',
         description: () => '统一搜索（浮层）：文件 / AI 会话 / 技能 / 记忆（Ctrl+K）',
-        icon: RecallGuideIcon,
+        icon: AnyfindGuideIcon,
       }],
     })
     const disposeBody = dyn.inject('sidebar.right.pane.tab', () => dyn.register(
-      { name: 'sidebar.right.pane.tab', key: 'dsh-recall', registrant: 'dsh-recall' },
-      (props: TabComponentPropsLike) => createElement(RecallTabPlaceholder, props),
+      { name: 'sidebar.right.pane.tab', key: 'dsh-anyfind', registrant: 'dsh-anyfind' },
+      (props: TabComponentPropsLike) => createElement(AnyfindTabPlaceholder, props),
     ))
     const disposeTitle = dyn.inject('sidebar.right.pane.tab.title', () => dyn.register(
-      { name: 'sidebar.right.pane.tab.title', key: 'dsh-recall', registrant: 'dsh-recall' },
-      RecallTabTitle,
+      { name: 'sidebar.right.pane.tab.title', key: 'dsh-anyfind', registrant: 'dsh-anyfind' },
+      AnyfindTabTitle,
     ))
     return () => { disposeBody(); disposeTitle(); disposeType() }
   }
@@ -957,13 +957,13 @@ export function apply(ctx: Context): void {
     let disposeBs: (() => void) | null = null
     if (betterSidebarSvc !== null) {
       disposeBs = betterSidebarSvc.registerTab({
-        id: 'recall',
+        id: 'anyfind',
         title: () => '搜索',
         description: () => '统一搜索（浮层）：文件 / AI 会话 / 技能 / 记忆（Ctrl+K）',
-        icon: (size) => RecallGuideIcon({ size }),
+        icon: (size) => AnyfindGuideIcon({ size }),
         order: 62,
         single: true,
-        component: (props) => createElement(RecallTabPlaceholder, props as TabComponentPropsLike),
+        component: (props) => createElement(AnyfindTabPlaceholder, props as TabComponentPropsLike),
       })
     }
     syncDirectTab()

@@ -1,7 +1,7 @@
-// selftest.mjs — dsh-recall 全链路自测（不依赖真实 dsh 宿主）：
+// selftest.mjs — dsh-anyfind 全链路自测（不依赖真实 dsh 宿主）：
 //   启动 mock 内核（test/mock-core.mjs，契约假数据）→ 以假 cordis ctx 加载
 //   lib/index.js（捕获 tools/commands/webServer 注册面）→ 逐个打：
-//   recall_search 工具、/recall 斜杠命令、/dsh-recall/api/* 代理路由、
+//   anyfind_search 工具、/anyfind 斜杠命令、/dsh-anyfind/api/* 代理路由、
 //   内核 down 的友好降级。
 // 用法：npm run build && npm run selftest
 import { spawn } from 'node:child_process'
@@ -128,15 +128,15 @@ try {
   apply(rootCtx, { endpoint: MOCK_ENDPOINT })
 
   console.log('▶ 注册面：')
-  check('recall_search 工具已注册', registered.tools.has('recall_search'))
-  check('/recall 斜杠命令已注册', registered.commands.has('recall'))
-  for (const p of ['/dsh-recall/api/health', '/dsh-recall/api/search', '/dsh-recall/api/resume', '/dsh-recall/api/config']) {
+  check('anyfind_search 工具已注册', registered.tools.has('anyfind_search'))
+  check('/anyfind 斜杠命令已注册', registered.commands.has('anyfind'))
+  for (const p of ['/dsh-anyfind/api/health', '/dsh-anyfind/api/search', '/dsh-anyfind/api/resume', '/dsh-anyfind/api/config']) {
     check(`路由 ${p} 已注册`, registered.routes.has(p))
   }
-  const tool = registered.tools.get('recall_search')
+  const tool = registered.tools.get('anyfind_search')
   check('工具描述含使用时机指引', typeof tool.description === 'string' && tool.description.includes('以前'))
 
-  console.log('▶ recall_search 工具（内核在线）：')
+  console.log('▶ anyfind_search 工具（内核在线）：')
   const toolOut = await tool.execute({ query: 'nginx' }, {})
   check('返回命中摘要', typeof toolOut === 'string' && toolOut.includes('命中'), String(toolOut).slice(0, 80))
   check('摘要含结构化字段（agent/项目/session_id）',
@@ -147,8 +147,8 @@ try {
   const toolEmpty = await tool.execute({ query: '' }, {})
   check('空 query 友好报错', toolEmpty.includes('query 不能为空'))
 
-  console.log('▶ /recall 斜杠命令：')
-  const cmd = registered.commands.get('recall')
+  console.log('▶ /anyfind 斜杠命令：')
+  const cmd = registered.commands.get('anyfind')
   const cmdOk = await cmd.handler({ rawInput: ' nginx', signal: new AbortController().signal })
   check('成功结果 kind=success', cmdOk.kind === 'success')
   check('渲染含来源标注（agent · 项目 · 日期）',
@@ -160,27 +160,27 @@ try {
   check('无命中正常返回（mock 全组返回也接受）', cmdNone.kind === 'success')
 
   console.log('▶ 代理路由：')
-  const health = await callRoute('/dsh-recall/api/health')
+  const health = await callRoute('/dsh-anyfind/api/health')
   check('GET health 200 且透传索引计数', health.statusCode === 200 && health.json().index.sessions === 86)
-  const search = await callRoute('/dsh-recall/api/search', { query: 'q=nginx&kinds=session' })
+  const search = await callRoute('/dsh-anyfind/api/search', { query: 'q=nginx&kinds=session' })
   check('GET search 透传 groups', search.statusCode === 200 && search.json().groups.session.length === 2)
-  const searchEmpty = await callRoute('/dsh-recall/api/search', { query: 'q=' })
+  const searchEmpty = await callRoute('/dsh-anyfind/api/search', { query: 'q=' })
   check('GET search 空 q → 400', searchEmpty.statusCode === 400)
-  const resume = await callRoute('/dsh-recall/api/resume', {
+  const resume = await callRoute('/dsh-anyfind/api/resume', {
     method: 'POST',
     body: JSON.stringify({ agent: 'claude-code', session_id: 'sess-abc-123', cwd: 'D:/coding/filefind/dsh-plugin' }),
     headers: {},
   })
   check('POST resume 返回命令串', resume.statusCode === 200 && resume.json().command === 'claude --resume sess-abc-123', resume.body)
-  const cfgGet = await callRoute('/dsh-recall/api/config')
+  const cfgGet = await callRoute('/dsh-anyfind/api/config')
   check('GET config 返回当前 endpoint', cfgGet.statusCode === 200 && cfgGet.json().endpoint === MOCK_ENDPOINT)
-  const cfgBad = await callRoute('/dsh-recall/api/config', { method: 'POST', body: JSON.stringify({ endpoint: 'not a url' }) })
+  const cfgBad = await callRoute('/dsh-anyfind/api/config', { method: 'POST', body: JSON.stringify({ endpoint: 'not a url' }) })
   check('POST config 非法地址 → 400', cfgBad.statusCode === 400)
 
   console.log('▶ 内核 down 降级：')
   mock.kill()
   await delay(300)
-  const healthDown = await callRoute('/dsh-recall/api/health')
+  const healthDown = await callRoute('/dsh-anyfind/api/health')
   check('health → 502 + down 标记 + 引导', healthDown.statusCode === 502 && healthDown.json().down === true && healthDown.json().hint.includes('AnyFind 桌面版'))
   const toolDown = await tool.execute({ query: 'nginx' }, {})
   check('工具返回友好错误而非抛出', typeof toolDown === 'string' && toolDown.includes('内核不可达') && toolDown.includes('未启动'))

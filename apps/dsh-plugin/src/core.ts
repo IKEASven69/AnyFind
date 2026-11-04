@@ -1,8 +1,8 @@
 /**
  * 统一搜索内核（filefind）HTTP 客户端 + 结果格式化。
- * host 半的代理路由、recall_search 工具、/recall 斜杠命令共用这一层；
+ * host 半的代理路由、anyfind_search 工具、/anyfind 斜杠命令共用这一层；
  * 契约对齐 docs/api-contract.md v0.1（端点路径/参数名/响应字段名固定）。
- * @module dsh-recall/core
+ * @module dsh-anyfind/core
  */
 
 /** 契约：GET /api/health 响应。 */
@@ -183,18 +183,18 @@ export function flattenHits(resp: SearchResponse): Hit[] {
 }
 
 /**
- * recall_search 工具输出：结构化摘要，每条 kind/title/agent/project/mtime/snippet/session_id。
+ * anyfind_search 工具输出：结构化摘要，每条 kind/title/agent/project/mtime/snippet/session_id。
  * 供模型直接引用与复述来源。
  */
 export function formatForAgent(resp: SearchResponse): string {
   const hits = flattenHits(resp)
   if (hits.length === 0) {
-    return `recall_search: 「${resp.q}」在全部历史（文件/会话/技能/记忆）中没有命中。可换关键词，或去掉过滤条件重试。`
+    return `anyfind_search: 「${resp.q}」在全部历史（文件/会话/技能/记忆）中没有命中。可换关键词，或去掉过滤条件重试。`
   }
   const truncated = Object.entries(resp.truncated ?? {}).filter(([, v]) => v).map(([k]) => KIND_LABEL[k] ?? k)
   const lines = hits.map(hitLine)
   return [
-    `recall_search「${resp.q}」命中 ${hits.length} 条` +
+    `anyfind_search「${resp.q}」命中 ${hits.length} 条` +
       (resp.took_ms !== undefined ? `（${resp.took_ms}ms）` : '') +
       (truncated.length > 0 ? `，${truncated.join('/')}组结果被截断（可加 limit 或收窄关键词）` : '') + '：',
     ...lines,
@@ -203,7 +203,7 @@ export function formatForAgent(resp: SearchResponse): string {
   ].join('\n')
 }
 
-/** /recall 斜杠命令输出：渲染进会话（宿主命令卡按纯文本渲染，不用 markdown 记号）。 */
+/** /anyfind 斜杠命令输出：渲染进会话（宿主命令卡按纯文本渲染，不用 markdown 记号）。 */
 export function formatForCommand(resp: SearchResponse): string {
   const hits = flattenHits(resp)
   if (hits.length === 0) return `统一搜索「${resp.q}」没有命中。`

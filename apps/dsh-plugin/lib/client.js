@@ -250,21 +250,21 @@ window.__ModuleLoader__.load({
 		  return err;
 		}
 		async function getHealth() {
-		  const res = await fetch("/dsh-recall/api/health", { cache: "no-store" });
+		  const res = await fetch("/dsh-anyfind/api/health", { cache: "no-store" });
 		  const body = await res.json();
 		  if (!res.ok || body.down === true) throw coreDown(body, `HTTP ${res.status}`);
 		  return body;
 		}
 		async function getSearch(q) {
 		  const url = new URLSearchParams({ q, limit: "10" });
-		  const res = await fetch(`/dsh-recall/api/search?${url.toString()}`, { cache: "no-store" });
+		  const res = await fetch(`/dsh-anyfind/api/search?${url.toString()}`, { cache: "no-store" });
 		  const body = await res.json();
 		  if (body.down === true) throw coreDown(body, "\u5185\u6838\u672A\u542F\u52A8");
 		  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 		  return body;
 		}
 		async function postResume(hit) {
-		  const res = await fetch("/dsh-recall/api/resume", {
+		  const res = await fetch("/dsh-anyfind/api/resume", {
 		    method: "POST",
 		    headers: { "content-type": "application/json" },
 		    body: JSON.stringify({ agent: hit.agent, session_id: hit.session_id, cwd: hit.cwd })
@@ -406,7 +406,7 @@ window.__ModuleLoader__.load({
 		    )
 		  );
 		}
-		function RecallMark({ size = 16 }) {
+		function AnyfindMark({ size = 16 }) {
 		  return (0, import_react.createElement)(
 		    "svg",
 		    { width: size, height: size, viewBox: "0 0 24 24", "aria-hidden": true, fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round" },
@@ -493,7 +493,7 @@ window.__ModuleLoader__.load({
 		    )
 		  );
 		}
-		function RecallPanel() {
+		function AnyfindPanel() {
 		  const [health, setHealth] = (0, import_react.useState)(null);
 		  const [downDetail, setDownDetail] = (0, import_react.useState)(null);
 		  const [query, setQuery] = (0, import_react.useState)("");
@@ -760,7 +760,7 @@ window.__ModuleLoader__.load({
 		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null
 		  );
 		}
-		function RecallOverlay() {
+		function AnyfindOverlay() {
 		  const open = (0, import_react.useSyncExternalStore)(overlayStore.subscribe, () => overlayStore.open);
 		  (0, import_react.useEffect)(() => {
 		    const onKey = (e) => {
@@ -801,12 +801,12 @@ window.__ModuleLoader__.load({
 		    (0, import_react.createElement)(
 		      "div",
 		      { className: "rc-modal", role: "dialog", "aria-label": "\u7EDF\u4E00\u641C\u7D22" },
-		      (0, import_react.createElement)(RecallPanel)
+		      (0, import_react.createElement)(AnyfindPanel)
 		    )
 		  );
 		}
 		var bootAt = 0;
-		function RecallTabPlaceholder(props) {
+		function AnyfindTabPlaceholder(props) {
 		  (0, import_react.useEffect)(() => {
 		    const isRestore = Date.now() - bootAt <= 5e3;
 		    if (!isRestore) overlayStore.show();
@@ -827,7 +827,7 @@ window.__ModuleLoader__.load({
 		    (0, import_react.createElement)(
 		      "div",
 		      { className: "rc-ph" },
-		      (0, import_react.createElement)(RecallMark, { size: 28 }),
+		      (0, import_react.createElement)(AnyfindMark, { size: 28 }),
 		      (0, import_react.createElement)("div", { className: "rc-ph-t" }, "\u641C\u7D22\u4EE5\u6D6E\u5C42\u6253\u5F00"),
 		      (0, import_react.createElement)("div", null, "\u6309 ", (0, import_react.createElement)("kbd", null, "Ctrl+K"), " \u968F\u65F6\u547C\u51FA / Esc \u5173\u95ED"),
 		      (0, import_react.createElement)("button", { className: "rc-btn rc-btn-pri", onClick: () => {
@@ -836,47 +836,47 @@ window.__ModuleLoader__.load({
 		    )
 		  );
 		}
-		function RecallTabTitle() {
+		function AnyfindTabTitle() {
 		  return (0, import_react.createElement)("span", {
 		    style: { display: "inline-flex", alignItems: "center", gap: 6, color: "var(--dsw-alias-label-primary, inherit)" }
-		  }, (0, import_react.createElement)(RecallMark, { size: 14 }), "\u641C\u7D22");
+		  }, (0, import_react.createElement)(AnyfindMark, { size: 14 }), "\u641C\u7D22");
 		}
-		function RecallGuideIcon(props) {
-		  return (0, import_react.createElement)(RecallMark, { size: props?.size ?? 22 });
+		function AnyfindGuideIcon(props) {
+		  return (0, import_react.createElement)(AnyfindMark, { size: props?.size ?? 22 });
 		}
 		function apply(ctx) {
 		  const slots = ctx.slots;
 		  if (slots === null || typeof slots !== "object" || typeof slots.inject !== "function" || typeof slots.register !== "function") {
-		    console.warn("[dsh-recall] \u5BBF\u4E3B\u672A\u63D0\u4F9B\u53EF\u7528\u7684 slots \u670D\u52A1\uFF08\u9700\u8981 @deepseek-ai/dsh-client-ui-renderer\uFF09\uFF0C\u641C\u7D22\u6D6E\u5C42\u8DF3\u8FC7\u6302\u8F7D");
+		    console.warn("[dsh-anyfind] \u5BBF\u4E3B\u672A\u63D0\u4F9B\u53EF\u7528\u7684 slots \u670D\u52A1\uFF08\u9700\u8981 @deepseek-ai/dsh-client-ui-renderer\uFF09\uFF0C\u641C\u7D22\u6D6E\u5C42\u8DF3\u8FC7\u6302\u8F7D");
 		    return;
 		  }
 		  const dyn = ctx.slots;
 		  bootAt = Date.now();
 		  ctx.slots.inject("shell.overlay", () => ctx.slots.register(
-		    { name: "shell.overlay", id: "recall-spotlight", order: 48 },
-		    () => (0, import_react.createElement)(RecallOverlay)
+		    { name: "shell.overlay", id: "anyfind-spotlight", order: 48 },
+		    () => (0, import_react.createElement)(AnyfindOverlay)
 		  ));
 		  const registerDirectTab = (tabs) => {
 		    const disposeType = tabs.register({
-		      id: "dsh-recall",
-		      kind: "recall",
+		      id: "dsh-anyfind",
+		      kind: "anyfind",
 		      keepMounted: false,
 		      title: () => "\u641C\u7D22",
 		      guide: [{
-		        id: "recall",
+		        id: "anyfind",
 		        order: 62,
 		        title: () => "\u641C\u7D22",
 		        description: () => "\u7EDF\u4E00\u641C\u7D22\uFF08\u6D6E\u5C42\uFF09\uFF1A\u6587\u4EF6 / AI \u4F1A\u8BDD / \u6280\u80FD / \u8BB0\u5FC6\uFF08Ctrl+K\uFF09",
-		        icon: RecallGuideIcon
+		        icon: AnyfindGuideIcon
 		      }]
 		    });
 		    const disposeBody = dyn.inject("sidebar.right.pane.tab", () => dyn.register(
-		      { name: "sidebar.right.pane.tab", key: "dsh-recall", registrant: "dsh-recall" },
-		      (props) => (0, import_react.createElement)(RecallTabPlaceholder, props)
+		      { name: "sidebar.right.pane.tab", key: "dsh-anyfind", registrant: "dsh-anyfind" },
+		      (props) => (0, import_react.createElement)(AnyfindTabPlaceholder, props)
 		    ));
 		    const disposeTitle = dyn.inject("sidebar.right.pane.tab.title", () => dyn.register(
-		      { name: "sidebar.right.pane.tab.title", key: "dsh-recall", registrant: "dsh-recall" },
-		      RecallTabTitle
+		      { name: "sidebar.right.pane.tab.title", key: "dsh-anyfind", registrant: "dsh-anyfind" },
+		      AnyfindTabTitle
 		    ));
 		    return () => {
 		      disposeBody();
@@ -914,13 +914,13 @@ window.__ModuleLoader__.load({
 		    let disposeBs = null;
 		    if (betterSidebarSvc !== null) {
 		      disposeBs = betterSidebarSvc.registerTab({
-		        id: "recall",
+		        id: "anyfind",
 		        title: () => "\u641C\u7D22",
 		        description: () => "\u7EDF\u4E00\u641C\u7D22\uFF08\u6D6E\u5C42\uFF09\uFF1A\u6587\u4EF6 / AI \u4F1A\u8BDD / \u6280\u80FD / \u8BB0\u5FC6\uFF08Ctrl+K\uFF09",
-		        icon: (size) => RecallGuideIcon({ size }),
+		        icon: (size) => AnyfindGuideIcon({ size }),
 		        order: 62,
 		        single: true,
-		        component: (props) => (0, import_react.createElement)(RecallTabPlaceholder, props)
+		        component: (props) => (0, import_react.createElement)(AnyfindTabPlaceholder, props)
 		      });
 		    }
 		    syncDirectTab();

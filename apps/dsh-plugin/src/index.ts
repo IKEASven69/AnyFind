@@ -1,11 +1,11 @@
 /**
- * dsh-recall host 半：把 filefind 统一搜索内核接进 dsh。
+ * dsh-anyfind host 半：把 filefind 统一搜索内核接进 dsh。
  * 注册面：
- *   - webServer 代理路由 /dsh-recall/api/{health,search,resume,config}
+ *   - webServer 代理路由 /dsh-anyfind/api/{health,search,resume,config}
  *     （面板同源调用，避开浏览器直连 127.0.0.1:8790 的 CORS 问题）；
- *   - agent 工具 recall_search（ctx.tools）；
- *   - 斜杠命令 /recall（ctx.commands，结构子集类型，免依赖 dsh-commands）。
- * @module dsh-recall
+ *   - agent 工具 anyfind_search（ctx.tools）；
+ *   - 斜杠命令 /anyfind（ctx.commands，结构子集类型，免依赖 dsh-commands）。
+ * @module dsh-anyfind
  */
 
 import { readFileSync } from 'node:fs'
@@ -26,7 +26,7 @@ export interface Config {
   endpoint?: string
 }
 
-export const name = 'dsh-recall'
+export const name = 'dsh-anyfind'
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8790'
 
@@ -47,7 +47,7 @@ export function discoverEndpoint(configPath?: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// /recall 斜杠命令：ctx.commands 结构子集（对齐 @deepseek-ai/dsh-commands 的
+// /anyfind 斜杠命令：ctx.commands 结构子集（对齐 @deepseek-ai/dsh-commands 的
 // CommandDefinition/CommandInvocation/CommandResult 形状；运行时是宿主同一注册表）。
 // ---------------------------------------------------------------------------
 
@@ -80,7 +80,7 @@ function renderText(_args: unknown, value: unknown): Array<{ type: 'text'; text:
 
 async function runSearch(query: string, kinds: readonly string[] | undefined, limit: number | undefined): Promise<{ ok: true; text: string; agentText: string } | { ok: false; text: string }> {
   const q = query.trim()
-  if (q === '') return { ok: false, text: '用法：/recall <关键词>（关键词不能为空）' }
+  if (q === '') return { ok: false, text: '用法：/anyfind <关键词>（关键词不能为空）' }
   try {
     const resp = await kernelSearch({ q, kinds, limit })
     return { ok: true, text: formatForCommand(resp), agentText: formatForAgent(resp) }
@@ -91,12 +91,12 @@ async function runSearch(query: string, kinds: readonly string[] | undefined, li
 }
 
 // ---------------------------------------------------------------------------
-// agent 工具 recall_search
+// agent 工具 anyfind_search
 // ---------------------------------------------------------------------------
 
-function registerRecallTool(ctx: Context): void {
+function registerAnyfindTool(ctx: Context): void {
   ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'recall_search',
+    name: 'anyfind_search',
     description:
       '搜索本机统一索引的全部历史：文件、文档内容、六家 AI harness（Claude Code/Codex/dsh/opencode/Pi/Cursor）的历史会话、' +
       'agent 记忆与技能文件。当用户提到"以前做过/配过/讨论过/踩过坑"某事，或需要引用历史会话与记忆的上下文时，用此工具搜索——' +
@@ -109,7 +109,7 @@ function registerRecallTool(ctx: Context): void {
     output: { schema: { type: 'string' }, render: renderText },
     async execute(args: { query?: string; kinds?: string; limit?: number }) {
       const query = (args.query ?? '').trim()
-      if (query === '') return 'recall_search: query 不能为空'
+      if (query === '') return 'anyfind_search: query 不能为空'
       const kinds = typeof args.kinds === 'string'
         ? args.kinds.split(',').map((k) => k.trim()).filter((k) => k !== '')
         : undefined
@@ -117,7 +117,7 @@ function registerRecallTool(ctx: Context): void {
       const r = await runSearch(query, kinds, limit)
       return r.ok ? r.agentText : r.text
     },
-  })), 'dsh-recall: recall_search')
+  })), 'dsh-anyfind: anyfind_search')
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
   return [
     host.webServer.register({
       kind: 'exact',
-      path: '/dsh-recall/api/health',
+      path: '/dsh-anyfind/api/health',
       handler: (request, response) => {
         if (!admitRequest(host, request, response)) return
         proxyCall(response, async () => ({ ...(await kernelHealth()), endpoint: getEndpoint() }))
@@ -214,7 +214,7 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
     }),
     host.webServer.register({
       kind: 'exact',
-      path: '/dsh-recall/api/search',
+      path: '/dsh-anyfind/api/search',
       handler: (request, response) => {
         if (!admitRequest(host, request, response)) return
         const url = new URL(request.url ?? '/', 'http://localhost')
@@ -231,7 +231,7 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
     }),
     host.webServer.register({
       kind: 'exact',
-      path: '/dsh-recall/api/resume',
+      path: '/dsh-anyfind/api/resume',
       handler: (request, response) => {
         if (!admitRequest(host, request, response)) return
         if (request.method !== 'POST') {
@@ -255,7 +255,7 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
     }),
     host.webServer.register({
       kind: 'exact',
-      path: '/dsh-recall/api/config',
+      path: '/dsh-anyfind/api/config',
       handler: (request, response) => {
         if (!admitRequest(host, request, response)) return
         if (request.method === 'GET') {
@@ -288,38 +288,38 @@ export function apply(ctx: Context, config?: Config): void {
     try {
       setEndpoint(config.endpoint)
     } catch (e) {
-      ctx.logger.warn(`dsh-recall: config.endpoint 非法（${e instanceof Error ? e.message : String(e)}），回退自动发现`)
+      ctx.logger.warn(`dsh-anyfind: config.endpoint 非法（${e instanceof Error ? e.message : String(e)}），回退自动发现`)
       setEndpoint(discoverEndpoint())
     }
   } else {
     setEndpoint(discoverEndpoint())
   }
-  ctx.logger.info(`dsh-recall: 统一搜索已加载（内核 ${getEndpoint()}）`)
+  ctx.logger.info(`dsh-anyfind: 统一搜索已加载（内核 ${getEndpoint()}）`)
 
   ctx.inject(['tools'], (tc) => {
-    registerRecallTool(tc)
+    registerAnyfindTool(tc)
   })
 
-  // 斜杠命令 /recall：commands 服务缺席（无交互 UI 的组合）时静默跳过。
+  // 斜杠命令 /anyfind：commands 服务缺席（无交互 UI 的组合）时静默跳过。
   ctx.inject(['commands'], (cc) => {
     const commands = (cc as unknown as { commands?: CommandsRegistryLike }).commands
     if (commands === undefined || typeof commands.register !== 'function') return
     cc.effect(() => commands.register({
-      name: 'recall',
+      name: 'anyfind',
       description: '统一搜索全部历史（文件/会话/技能/记忆）',
       input: { hint: '关键词，支持 kind: agent: date: ext: project: 过滤' },
       handler: async (invocation) => {
         const r = await runSearch(invocation.rawInput, undefined, 8)
         return r.ok ? { kind: 'success' as const, text: r.text } : { kind: 'error' as const, text: r.text }
       },
-    }), 'dsh-recall: /recall')
+    }), 'dsh-anyfind: /anyfind')
   })
 
   ctx.inject(['webServer'], (host) => {
     host.effect(() => {
       const disposers = registerRoutes(ctx, host)
       return () => { for (const d of disposers) d() }
-    }, 'dsh-recall: http routes')
+    }, 'dsh-anyfind: http routes')
   })
 }
 

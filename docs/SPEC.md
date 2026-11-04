@@ -18,7 +18,7 @@ Windows 上 Everything 级的即时搜索：一个索引统一 **文件名 / 文
 │ anyfindd（HTTP daemon，实现 api-contract.md）            │
 ├────────────┬─────────────────┬────────────────────────┤
 │ Tauri 桌面壳 │ dsh 插件(已有)   │ MCP server(后续)         │
-│ (人,全局热键) │ dsh-recall→改名  │                        │
+│ (人,全局热键) │ dsh-anyfind（2026-11-04 已改名，原 dsh-recall）  │                        │
 └────────────┴─────────────────┴────────────────────────┘
 ```
 
@@ -59,7 +59,7 @@ claude-code / codex / dsh（.jsonl.zstd 多版本目录取最高版）/ opencode
 
 1. **Everything 对比**：同机同查询集延迟/召回对比表（文件名搜索）
 2. **黄金集**：50 条标注「查询→应命中」自动化评测，全过
-3. **契约回归**：dsh-recall 插件（filefind/dsh-plugin）不换内核地址只换端口即可工作——证明 HTTP 契约未破坏
+3. **契约回归**：dsh-anyfind 插件（anyfind/apps/dsh-plugin；旧 filefind/dsh-plugin 仍以 dsh-recall 名挂在 web profile，迁移见发布包）不换内核地址只换端口即可工作——证明 HTTP 契约未破坏
 4. **benchmark 报告**：延迟预算表逐项实测数据
 
 ## 两路并行分工
