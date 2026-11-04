@@ -1,0 +1,49 @@
+{
+  "title": "AnyFind — 找回你的一切",
+  "template": "article",
+  "style": "dark",
+  "resolution": "1920x1080",
+  "fps": 30,
+  "scenes": [
+    {
+      "type": "title",
+      "content": "AnyFind\nWindows 上的 Everything × AI 记忆 即时搜索",
+      "duration": 4
+    },
+    {
+      "type": "slide",
+      "content": "你的工作记忆散落在六家 AI 里\nclaude-code · codex · dsh · opencode · pi · cursor\n会话、skills、记忆——找不回来",
+      "duration": 6
+    },
+    {
+      "type": "slide",
+      "content": "一个索引，统一一切\n文件名 · 文档内容 · 六家 harness 会话原文 · skills · agent 记忆",
+      "duration": 6
+    },
+    {
+      "type": "slide",
+      "content": "1,720,000 个文件，全盘索引 21.5 秒\n击键 → 结果 < 50ms\nMFT/USN 实时索引，增删改秒级跟随",
+      "duration": 6
+    },
+    {
+      "type": "slide",
+      "content": "Tauri 桌面壳 · 液态玻璃暗色 UI\nCtrl+K 全局热键 · 切 tab 零延迟 · 流式上屏",
+      "duration": 6
+    },
+    {
+      "type": "slide",
+      "content": "dsh-anyfind 插件\n/anyfind 斜杠命令 · anyfind_search 工具\n六家会话一键 resume 回到原处",
+      "duration": 6
+    },
+    {
+      "type": "slide",
+      "content": "不是 demo，是验收过的产品\n51 项回归 0 失败 · HTTP 契约 v0.1 · Rust 内核",
+      "duration": 5
+    },
+    {
+      "type": "slide",
+      "content": "AnyFind — 找回你的一切\ngithub.com/IKEASven69/AnyFind",
+      "duration": 5
+    }
+  ]
+}
