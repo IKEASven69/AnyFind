@@ -465,26 +465,15 @@ window.__ModuleLoader__.load({
 		    ) : null
 		  );
 		}
-		function DownGuide({ detail, endpoint, onRetry }) {
-		  let port = "8790";
-		  try {
-		    port = new URL(endpoint).port || "8790";
-		  } catch {
-		  }
+		function DownGuide({ detail, onRetry }) {
 		  return (0, import_react.createElement)(
 		    "div",
 		    { className: "rc-guide" },
-		    (0, import_react.createElement)("div", { className: "rc-guide-t" }, "AnyFind \u5185\u6838\u672A\u542F\u52A8"),
+		    (0, import_react.createElement)("div", { className: "rc-guide-t" }, "\u641C\u7D22\u670D\u52A1\u672A\u8FDE\u63A5"),
 		    (0, import_react.createElement)(
 		      "div",
 		      { className: "rc-banner rc-banner-info" },
-		      `\u9762\u677F\u4E0E agent \u5DE5\u5177\u90FD\u4F9D\u8D56\u672C\u5730\u5185\u6838\uFF08${endpoint}\uFF09\u3002\u542F\u52A8\u540E\u6B64\u5904\u81EA\u52A8\u53EF\u7528\uFF1A`
-		    ),
-		    (0, import_react.createElement)("div", { className: "rc-cmd" }, `anyfindd --port ${port}`),
-		    (0, import_react.createElement)(
-		      "div",
-		      { className: "rc-banner rc-banner-info" },
-		      "\u5185\u6838\u76D1\u542C\u5176\u4ED6\u5730\u5740\uFF1F\u5728\u4E0B\u65B9\u300C\u5185\u6838\u5730\u5740\u300D\u6539\u6210\u5B9E\u9645\u5730\u5740\u540E\u91CD\u8BD5\u3002"
+		      "\u8BF7\u5148\u542F\u52A8 AnyFind \u684C\u9762\u7248\u3002\u672C\u5730\u641C\u7D22\u670D\u52A1\u4F1A\u81EA\u52A8\u542F\u52A8\uFF0C\u65E0\u9700\u914D\u7F6E\u5730\u5740\u6216\u7AEF\u53E3\u3002"
 		    ),
 		    detail !== "" ? (0, import_react.createElement)("div", { className: "rc-banner rc-banner-err" }, detail) : null,
 		    (0, import_react.createElement)("button", { className: "rc-btn rc-btn-pri", style: { alignSelf: "flex-start" }, onClick: onRetry }, "\u27F3 \u91CD\u65B0\u68C0\u6D4B")
@@ -513,8 +502,6 @@ window.__ModuleLoader__.load({
 		  const [error, setError] = (0, import_react.useState)(null);
 		  const [busy, setBusy] = (0, import_react.useState)(false);
 		  const [synOpen, setSynOpen] = (0, import_react.useState)(false);
-		  const [endpointDraft, setEndpointDraft] = (0, import_react.useState)("");
-		  const [savedTip, setSavedTip] = (0, import_react.useState)(false);
 		  const [sel, setSel] = (0, import_react.useState)(-1);
 		  const [cmds, setCmds] = (0, import_react.useState)({});
 		  const [resumeBusy, setResumeBusy] = (0, import_react.useState)(null);
@@ -527,12 +514,10 @@ window.__ModuleLoader__.load({
 		      (h) => {
 		        setHealth(h);
 		        setDownDetail(null);
-		        setEndpointDraft(h.endpoint ?? "");
 		      },
 		      (e) => {
 		        setHealth(null);
 		        setDownDetail(e instanceof Error ? e.message : String(e));
-		        if (e instanceof CoreDown && e.endpoint !== void 0) setEndpointDraft(e.endpoint);
 		      }
 		    );
 		  };
@@ -567,7 +552,6 @@ window.__ModuleLoader__.load({
 		        if (e instanceof CoreDown) {
 		          setHealth(null);
 		          setDownDetail(e.message);
-		          if (e.endpoint !== void 0) setEndpointDraft(e.endpoint);
 		          return;
 		        }
 		        setError(e instanceof Error ? e.message : String(e));
@@ -588,25 +572,6 @@ window.__ModuleLoader__.load({
 		        const p = at + ins.length;
 		        inputRef.current.setSelectionRange(p, p);
 		      }
-		    });
-		  };
-		  const saveEndpoint = () => {
-		    void fetch("/dsh-recall/api/config", {
-		      method: "POST",
-		      headers: { "content-type": "application/json" },
-		      body: JSON.stringify({ endpoint: endpointDraft })
-		    }).then(async (res) => {
-		      if (res.ok) {
-		        setSavedTip(true);
-		        setTimeout(() => {
-		          setSavedTip(false);
-		        }, 2e3);
-		        checkHealth();
-		      } else {
-		        const body = await res.json();
-		        setError(body.error ?? `HTTP ${res.status}`);
-		      }
-		    }).catch(() => {
 		    });
 		  };
 		  const copyText = (text, tip) => {
@@ -633,7 +598,6 @@ window.__ModuleLoader__.load({
 		          if (e instanceof CoreDown) {
 		            setHealth(null);
 		            setDownDetail("\u5185\u6838\u8FDE\u63A5\u4E2D\u65AD");
-		            if (e.endpoint !== void 0) setEndpointDraft(e.endpoint);
 		            return;
 		          }
 		          setError(e instanceof Error ? e.message : String(e));
@@ -754,7 +718,7 @@ window.__ModuleLoader__.load({
 		    (0, import_react.createElement)(
 		      "div",
 		      { className: "rc-body" },
-		      health === null ? (0, import_react.createElement)(DownGuide, { detail: downDetail ?? "", endpoint: endpointDraft || "http://127.0.0.1:8790", onRetry: checkHealth }) : null,
+		      health === null ? (0, import_react.createElement)(DownGuide, { detail: downDetail ?? "", onRetry: checkHealth }) : null,
 		      busy ? (0, import_react.createElement)(LoadingState) : null,
 		      !busy && health !== null && resp === null ? (0, import_react.createElement)(
 		        "div",
@@ -785,25 +749,15 @@ window.__ModuleLoader__.load({
 		              primaryAction(key, hh);
 		            },
 		            onCopy: copyText,
-		            onDown: (ep) => {
+		            onDown: () => {
 		              setHealth(null);
 		              setDownDetail("\u5185\u6838\u8FDE\u63A5\u4E2D\u65AD");
-		              if (ep !== void 0) setEndpointDraft(ep);
 		            }
 		          });
 		        })
 		      )) : []
 		    ),
-		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null,
-		    (0, import_react.createElement)(
-		      "div",
-		      { className: "rc-foot", title: "\u7EDF\u4E00\u641C\u7D22\u5185\u6838\u5730\u5740\uFF08\u9ED8\u8BA4 http://127.0.0.1:8790\uFF09" },
-		      (0, import_react.createElement)("span", { style: { fontSize: 11, color: "var(--rc-mut)", flex: "none" } }, "\u5185\u6838\u5730\u5740"),
-		      (0, import_react.createElement)("input", { value: endpointDraft, placeholder: "http://127.0.0.1:8790", onChange: (e) => {
-		        setEndpointDraft(e.target.value);
-		      } }),
-		      (0, import_react.createElement)("button", { className: "rc-btn", onClick: saveEndpoint }, savedTip ? "\u2713 \u5DF2\u4FDD\u5B58" : "\u4FDD\u5B58")
-		    )
+		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null
 		  );
 		}
 		function RecallOverlay() {

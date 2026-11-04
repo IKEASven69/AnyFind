@@ -65,5 +65,8 @@ claude-code / codex / dsh（.jsonl.zstd 多版本目录取最高版）/ opencode
 ## 两路并行分工
 
 - **A 路（本仓 core/）**：anyfind-core + anyfindd。选型实验（rusqlite FTS5 trigram vs Tantivy，真实语料基准后定）、MFT/USN、六家适配器、DSL 解析器、HTTP 契约服务
-- **B 路（本仓 apps/desktop/）**：Tauri v2 壳。复用 desktop.html UI 资产并按上文修正三点；默认对接 Rust 内核（http://127.0.0.1:8790），内核地址可配；全局热键/托盘/自启动用官方插件
-- 接口即 api-contract.md，两路互不等待。release 由 `scripts/build-release.ps1` 构建，anyfindd 作为 externalBin 打进 NSIS；桌面版启动时检测 8790，未运行则自动拉起随包内核，自定义内核地址不干预
+- **B 路（本仓 apps/desktop/）**：Tauri v2 壳。复用 desktop.html UI 资产并按上文修正三点；自动对接 Rust 内核，普通设置不暴露内核地址；全局热键/托盘/自启动用官方插件
+- 接口即 api-contract.md，两路互不等待。release 由 `scripts/build-release.ps1` 构建，anyfindd 作为 externalBin 打进 NSIS；桌面版优先复用 8790，冲突时自动选择空闲端口并写入内部配置，dsh 插件启动时自动发现；自定义远程地址不干预
+- 大型索引默认放非系统盘的 `AnyFindData`，小型配置仍放 `%APPDATA%/anyfind/config.json`。桌面设置提供原生目录选择；切换时先复制并校验 `index.db` 与 `names.bin`，新目录内核验证成功后才删除旧索引，不覆盖目标已有文件
+- 同一 `index.db` 由系统级互斥锁保证单内核；先绑定 HTTP 端口再启动后台索引。健康接口读内存计数，桌面端在单实例生效后监督内核，异常退出自动恢复，索引迁移期间暂停监督
+- MFT 批量写入页缓存上限 128MB，批量结束恢复 32MB 并执行 `PRAGMA shrink_memory`；大文件名内存索引的驻留占用单独优化，不与 SQLite 缓存混算

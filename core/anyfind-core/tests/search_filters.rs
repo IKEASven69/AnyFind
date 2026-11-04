@@ -5,12 +5,7 @@ fn kinds() -> Vec<String> {
     search::ALL_KINDS.iter().map(|s| s.to_string()).collect()
 }
 
-fn groups(
-    pool: &db::Pool,
-    query: &str,
-    kind: &str,
-    offset: usize,
-) -> Vec<serde_json::Value> {
+fn groups(pool: &db::Pool, query: &str, kind: &str, offset: usize) -> Vec<serde_json::Value> {
     search::unified_search(pool, None, query, &kinds(), 20, offset)
         .groups
         .get(kind)
@@ -25,12 +20,17 @@ fn filters_only_browse_all_five_kinds() {
     let db_path = tmp.path().join("index.db");
     let conn = db::open(&db_path).unwrap();
     db::ensure_tables(&conn).unwrap();
-    let index_sql: String = conn.query_row(
-        "SELECT sql FROM sqlite_master WHERE name='files_norm_path_v2'",
-        [],
-        |row| row.get(0),
-    ).unwrap();
-    assert!(index_sql.contains("'\\'"), "规范化路径索引必须保留反斜杠: {index_sql}");
+    let index_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='files_norm_path_v2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        index_sql.contains("'\\'"),
+        "规范化路径索引必须保留反斜杠: {index_sql}"
+    );
 
     for (path, name, size, mtime, text) in [
         ("D:/work/alpha.md", "alpha.md", 2048, 100.0, "alpha body"),
@@ -43,8 +43,11 @@ fn filters_only_browse_all_five_kinds() {
         )
         .unwrap();
         let file_id = conn.last_insert_rowid();
-        conn.execute("INSERT INTO content(file_id,text) VALUES(?,?)", params![file_id, text])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO content(file_id,text) VALUES(?,?)",
+            params![file_id, text],
+        )
+        .unwrap();
     }
     for (agent, sid, project, mtime) in [
         ("claude-code", "s1", "alpha", 100.0),
@@ -53,7 +56,15 @@ fn filters_only_browse_all_five_kinds() {
         conn.execute(
             "INSERT INTO sessions(agent,session_id,title,path,cwd,project,mtime,size)
              VALUES(?,?,?,?,?,?,?,10)",
-            params![agent, sid, format!("title {sid}"), format!("D:/{sid}.jsonl"), "D:/work", project, mtime],
+            params![
+                agent,
+                sid,
+                format!("title {sid}"),
+                format!("D:/{sid}.jsonl"),
+                "D:/work",
+                project,
+                mtime
+            ],
         )
         .unwrap();
         let rowid = conn.last_insert_rowid();
@@ -69,9 +80,33 @@ fn filters_only_browse_all_five_kinds() {
         .unwrap();
     }
     for (kind, agent, path, name, project, mtime, text) in [
-        ("skill", "claude-code", "D:/skills/a/SKILL.md", "a", "alpha", 100.0, "skill A"),
-        ("skill", "codex", "D:/skills/b/SKILL.md", "b", "beta", 200.0, "skill B"),
-        ("memory", "claude-code", "D:/work/CLAUDE.md", "CLAUDE.md", "alpha", 300.0, "memory A"),
+        (
+            "skill",
+            "claude-code",
+            "D:/skills/a/SKILL.md",
+            "a",
+            "alpha",
+            100.0,
+            "skill A",
+        ),
+        (
+            "skill",
+            "codex",
+            "D:/skills/b/SKILL.md",
+            "b",
+            "beta",
+            200.0,
+            "skill B",
+        ),
+        (
+            "memory",
+            "claude-code",
+            "D:/work/CLAUDE.md",
+            "CLAUDE.md",
+            "alpha",
+            300.0,
+            "memory A",
+        ),
     ] {
         conn.execute(
             "INSERT INTO agent_files(kind,agent,path,name,project,mtime,size,text)
@@ -111,7 +146,10 @@ fn filters_only_browse_all_five_kinds() {
     assert_eq!(page[0]["session_id"], "s1");
 
     let empty = search::unified_search(&pool, None, "", &kinds(), 20, 0);
-    assert!(empty.groups.values().all(|v| v.as_array().is_none_or(|a| a.is_empty())));
+    assert!(empty
+        .groups
+        .values()
+        .all(|v| v.as_array().is_none_or(|a| a.is_empty())));
 }
 
 #[test]
@@ -146,4 +184,27 @@ fn every_session_search_hit_can_be_read_and_resumed() {
             "codex resume s-resume"
         );
     }
+}
+
+#[test]
+fn file_hits_expose_directory_type() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("index.db");
+    let conn = db::open(&db_path).unwrap();
+    db::ensure_tables(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO files(path,name,size,mtime,is_dir,indexed) VALUES
+         ('D:/work/AstrBot','AstrBot',0,1,1,1),
+         ('D:/bin/astrbot.exe','astrbot.exe',100,2,0,1)",
+        [],
+    )
+    .unwrap();
+    let pool = db::Pool::new(&db_path, 2);
+
+    let hits = groups(&pool, "astrbot", "file", 0);
+    assert_eq!(hits.len(), 2);
+    let dir = hits.iter().find(|h| h["title"] == "AstrBot").unwrap();
+    let exe = hits.iter().find(|h| h["title"] == "astrbot.exe").unwrap();
+    assert_eq!(dir["is_dir"], true);
+    assert_eq!(exe["is_dir"], false);
 }

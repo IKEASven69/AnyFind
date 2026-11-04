@@ -196,30 +196,33 @@
   .group-head:hover { background: rgba(255,255,255,0.05); }
   .group-head .g-icon { font-size: 13px; }
   .group-head .g-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.75); }
-  .group-head .g-kind { font-size: 9px; font-family: ui-monospace, Consolas, monospace; color: rgba(255,255,255,0.35); border: 0.5px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 4px; }
-  .group-head .g-count { font-size: 11px; color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.07); border-radius: 10px; padding: 0 7px; }
-  .group-head .g-trunc { font-size: 10px; color: #ffc96b; }
+  .group-head .g-count { font-size: 10.5px; color: rgba(255,255,255,0.42); font-variant-numeric: tabular-nums; }
   .group-head .g-arrow { margin-left: auto; font-size: 9px; color: rgba(255,255,255,0.35); transition: transform 0.15s; }
   .group.collapsed .g-arrow { transform: rotate(-90deg); }
   .group.collapsed .group-body { display: none; }
   .result {
-    display: flex; align-items: flex-start; padding: 7px 10px; border-radius: 8px;
-    cursor: pointer; gap: 10px; transition: background 0.12s; position: relative;
+    display: flex; align-items: center; padding: 7px 10px; border-radius: 8px;
+    cursor: default; gap: 10px; transition: background 0.12s; position: relative;
   }
   .result:hover { background: rgba(255,255,255,0.08); backdrop-filter: blur(8px); }
   .result.focused { background: rgba(120,150,255,0.18); box-shadow: 0 0 0 0.5px rgba(120,150,255,0.35) inset; }
-  .result .ico { font-size: 17px; width: 24px; text-align: center; flex-shrink: 0; opacity: 0.9; padding-top: 1px; }
+  .result .ico { font-size: 17px; width: 30px; text-align: center; flex-shrink: 0; opacity: 0.9; }
   .result .info { flex: 1; min-width: 0; }
   .result .name { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.93); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .result .snippet { font-size: 11.5px; color: rgba(255,255,255,0.6); margin-top: 2px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-all; }
   .result .path { font-size: 10.5px; color: rgba(255,255,255,0.38); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, Consolas, monospace; }
   .result .meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 10.5px; color: rgba(255,255,255,0.45); }
+  .file-ico { --file-accent: #9aa9bd; position: relative; width: 30px; height: 34px; flex: 0 0 30px; color: var(--file-accent); }
+  .file-ico svg { display: block; width: 30px; height: 30px; }
+  .file-ico .file-ext { position: absolute; left: 1px; right: 1px; bottom: 0; text-align: center; font: 700 7.5px/11px ui-monospace, Consolas, monospace; letter-spacing: 0.1px; color: var(--file-accent); }
+  .file-ico.folder .file-ext { bottom: 1px; font-size: 7px; }
+  .file-type { flex-shrink: 0; padding: 0 5px; border: 1px solid rgba(160,180,210,0.18); border-radius: 4px; color: rgba(200,214,235,0.72); font: 600 9px/14px ui-monospace, Consolas, monospace; }
   .agent-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: rgba(255,255,255,0.6); }
   .agent-badge .a-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .proj-tag { color: rgba(160,190,255,0.75); font-size: 10px; }
   mark { background: rgba(255,200,70,0.32); color: #ffe9a8; border-radius: 3px; padding: 0 1px; }
   /* 行内动作按钮 */
-  .acts { position: absolute; right: 8px; top: 6px; display: none; gap: 4px; }
+  .acts { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: 4px; }
   .result:hover .acts, .result.focused .acts { display: flex; }
   .acts button {
     font-size: 10.5px; font-family: inherit; padding: 3px 9px; border-radius: 6px; cursor: pointer;
@@ -301,13 +304,11 @@
     color: #cfd9ff; outline: none; cursor: pointer;
   }
   #hotkey-input.recording { border-color: rgba(255,200,100,0.6); color: #ffd9a0; }
-  #kernel-input {
-    flex: 1; padding: 5px 8px; font-size: 11px; font-family: ui-monospace, Consolas, monospace;
-    background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 7px;
-    color: #cfd9ff; outline: none;
-  }
   .set-btn { padding: 5px 12px; font-size: 11px; font-family: inherit; border-radius: 7px; cursor: pointer; border: 0.5px solid rgba(120,150,255,0.45); background: rgba(120,150,255,0.22); color: #cfd9ff; }
   .set-btn:hover { background: rgba(120,150,255,0.4); }
+  .set-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .storage-path { margin: -7px 0 12px; color: rgba(210,220,240,0.5); font: 10px/1.45 ui-monospace, Consolas, monospace; word-break: break-all; }
+  .storage-hint { margin: -6px 0 12px; color: rgba(210,220,240,0.35); font-size: 10px; line-height: 1.45; }
   .set-btn.danger { border-color: rgba(255,110,110,0.4); background: rgba(255,90,90,0.15); color: #ffb0b0; }
   .set-btn.danger:hover { background: rgba(255,90,90,0.3); }
   .switch { position: relative; width: 34px; height: 19px; border-radius: 12px; background: rgba(255,255,255,0.12); border: none; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
@@ -376,7 +377,7 @@
   <div id="kinds-wrap"></div>
   <div id="status"></div>
   <div id="results-zone">
-    <div id="results-wrap"></div>
+    <div id="results-wrap"><div class="empty">输入关键词开始搜索</div></div>
     <div id="loading">
       <div class="ld-spin"></div>
       <div class="ld-text">搜索中…</div>
@@ -386,13 +387,10 @@
       </div>
     </div>
     <div id="onboard">
-      <div class="ob-title">搜索内核未连接</div>
-      <div class="ob-desc">AnyFind 需要本地搜索内核（anyfindd）提供数据。<br>请先启动内核，然后点击重试。当前内核地址：</div>
-      <div class="ob-url" id="ob-url">…</div>
+      <div class="ob-title">正在准备搜索</div>
+      <div class="ob-desc">首次使用需要建立索引，完成后即可搜索。<br>若长时间未就绪，请点击重试。</div>
       <div class="ob-btns">
-        <button class="set-btn" id="ob-retry">重试连接</button>
-        <button class="set-btn" id="ob-settings">修改内核地址</button>
-        <button class="set-btn" id="ob-mock">Mock 预览</button>
+        <button class="set-btn" id="ob-retry">重试</button>
       </div>
     </div>
   </div>
@@ -437,23 +435,20 @@
     <input id="hotkey-input" readonly value="…" title="点击后按新组合键">
   </div>
   <div class="set-row">
-    <span>内核地址</span>
-    <input id="kernel-input" spellcheck="false" title="anyfindd HTTP 地址">
-    <button class="set-btn" id="kernel-save">保存</button>
+    <span>索引存储位置</span>
+    <button class="set-btn" id="data-dir-browse">更改…</button>
   </div>
+  <div class="storage-path" id="data-dir-path">桌面版可配置</div>
+  <div class="storage-hint">更改时会迁移现有索引并自动重启，不会覆盖目标目录已有文件。</div>
   <div class="set-row">
     <span>开机自启动</span>
     <button class="switch" id="autostart-switch"></button>
   </div>
   <div class="set-row">
-    <span>Mock 数据模式</span>
-    <button class="switch" id="mock-switch" title="内核未就绪时用假数据预览 UI"></button>
-  </div>
-  <div class="set-row">
     <span>退出 AnyFind</span>
     <button class="set-btn danger" id="btn-quit">退出</button>
   </div>
-  <div class="set-note">热键保存后立即生效并写入 %APPDATA%/anyfind/config.json；关闭按钮仅隐藏窗口，热键可随时唤起。</div>
+  <div class="set-note">热键保存后立即生效；关闭按钮仅隐藏窗口，热键可随时唤起。</div>
 </div>
 <div id="toast"></div>
 <script>
@@ -461,7 +456,7 @@
 /* ============ 壳桥接层（Tauri / 浏览器双模式） ============ */
 const T = window.__TAURI__ || null;
 const invoke = window.__ffInvoke || (T && T.core ? T.core.invoke.bind(T.core) : null);
-const DEFAULT_KERNEL = "http://127.0.0.1:8765";
+const DEFAULT_KERNEL = "http://127.0.0.1:8790";
 
 const FF = {
   mock: false,
@@ -508,10 +503,11 @@ async function loadConfig() {
   } else {
     try { cfg = JSON.parse(localStorage.getItem("ff.cfg") || "{}"); } catch (e) {}
   }
-  FF.cfg = Object.assign({ hotkey: "ctrl+shift+f", kernel_url: DEFAULT_KERNEL, autostart: false, mock: false }, cfg || {});
+  FF.cfg = Object.assign({ hotkey: "ctrl+shift+f", kernel_url: DEFAULT_KERNEL, autostart: false, mock: false, data_dir: "" }, cfg || {});
   // URL 覆盖（测试用）：?kernel=http://127.0.0.1:8766
   const urlKernel = new URLSearchParams(location.search).get("kernel");
   if (urlKernel) FF.cfg.kernel_url = urlKernel;
+  updateStorageUI();
 }
 async function saveConfig() {
   if (invoke) {
@@ -521,6 +517,12 @@ async function saveConfig() {
   }
 }
 function kernelBase() { return (FF.cfg.kernel_url || DEFAULT_KERNEL).replace(/\/+$/, ""); }
+function updateStorageUI() {
+  const path = FF.cfg.data_dir || "桌面版可配置";
+  $("data-dir-path").textContent = invoke ? path : "仅桌面版支持更改";
+  $("data-dir-path").title = path;
+  $("data-dir-browse").disabled = !invoke;
+}
 
 /* ============ 内核 API（经壳代理，免 CORS；mock 拦截） ============ */
 /* 超时兜底：任何内核请求都不能无限等（内核僵死时 UI 必须保持可用） */
@@ -606,13 +608,39 @@ async function copyText(t, label) {
   if (await copyTextRaw(t)) { toast(label || "已复制路径"); return; }
   toast("复制失败");
 }
-function iconFor(name) {
-  const ext = (name || "").split(".").pop().toLowerCase();
-  const icons = { py: "\u{1F40D}", js: "\u{1F310}", ts: "\u{1F4DD}", html: "\u{1F578}", css: "\u{1F3A8}",
-                  json: "\u{1F4CB}", md: "\u{1F4C4}", txt: "\u{1F4C4}", rs: "\u{1F99A}", go: "\u{1F426}",
-                  exe: "\u2699", db: "\u{1F5C3}", jpg: "\u{1F5BC}", png: "\u{1F5BC}", pdf: "\u{1F4D1}",
-                  toml: "\u2699", yaml: "\u2699", yml: "\u2699", xml: "\u{1F4CB}", cfg: "\u2699" };
-  return icons[ext] || "\u{1F4C4}";
+const FILE_ICON_PATHS = {
+  file: '<path d="M8 3h8l6 6v15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M16 3v7h6"/>',
+  folder: '<path d="M3 9a3 3 0 0 1 3-3h6l3 3h9a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="M3 12h24"/>',
+  code: '<path d="M8 3h8l6 6v15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M16 3v7h6M12 14l-3 3 3 3M17 14l3 3-3 3"/>',
+  app: '<rect x="4" y="4" width="22" height="22" rx="4"/><path d="M4 10h22M9 7h.01M13 7h.01M12 15l-2 3 2 3M18 15l2 3-2 3"/>',
+  image: '<rect x="4" y="5" width="22" height="20" rx="3"/><circle cx="11" cy="11" r="2"/><path d="M5 23l7-7 4 4 4-5 5 6"/>',
+  archive: '<path d="M6 8h18v17H6zM4 4h22v5H4zM12 12h6M14 12v5"/>',
+  data: '<ellipse cx="15" cy="7" rx="10" ry="4"/><path d="M5 7v8c0 2.2 4.5 4 10 4s10-1.8 10-4V7M5 15v8c0 2.2 4.5 4 10 4s10-1.8 10-4v-8"/>',
+  doc: '<path d="M8 3h8l6 6v15a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M16 3v7h6M10 14h10M10 18h10M10 22h7"/>',
+};
+const FILE_TYPE_COLORS = {
+  file: "oklch(0.72 0.025 255)", folder: "oklch(0.82 0.11 85)",
+  code: "oklch(0.78 0.10 245)", app: "oklch(0.75 0.12 300)",
+  image: "oklch(0.78 0.10 155)", archive: "oklch(0.78 0.11 55)",
+  data: "oklch(0.76 0.09 190)", doc: "oklch(0.78 0.08 220)",
+};
+function fileTypeFor(h) {
+  if (h.is_dir === true) return { label: "DIR", meta: "文件夹", shape: "folder" };
+  const base = String(h.title || h.path || "").split(/[\\/]/).pop() || "";
+  const dot = base.lastIndexOf(".");
+  const ext = dot > 0 && dot < base.length - 1 ? base.slice(dot + 1).toLowerCase() : "";
+  let shape = "file";
+  if (["exe", "msi", "bat", "cmd", "ps1", "sh", "app"].includes(ext)) shape = "app";
+  else if (["py", "js", "jsx", "ts", "tsx", "rs", "go", "java", "c", "cpp", "cs", "html", "css", "vue", "php", "rb", "swift", "kt"].includes(ext)) shape = "code";
+  else if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp"].includes(ext)) shape = "image";
+  else if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) shape = "archive";
+  else if (["db", "sqlite", "json", "jsonl", "csv", "sql", "xml", "yaml", "yml", "toml"].includes(ext)) shape = "data";
+  else if (["md", "txt", "pdf", "doc", "docx", "rtf"].includes(ext)) shape = "doc";
+  return { label: ext ? ext.slice(0, 5).toUpperCase() : "FILE", meta: ext ? `.${ext}` : "文件", shape };
+}
+function fileVisual(h) {
+  const type = fileTypeFor(h);
+  return `<span class="file-ico ${type.shape}" style="--file-accent:${FILE_TYPE_COLORS[type.shape]}" title="${esc(type.meta)}"><svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${FILE_ICON_PATHS[type.shape]}</svg><span class="file-ext">${esc(type.label)}</span></span>`;
 }
 
 /* ============ 窗口控制（Tauri） ============ */
@@ -788,7 +816,7 @@ function feedSuggestCache(data) {
   }));
 }
 
-/* ============ Mock 数据（契约 v0.1 结构） ============ */
+/* ============ 演示数据（契约 v0.1 结构） ============ */
 const MOCK = (() => {
   const agents = Object.keys(AGENTS);
   function hit(kind, q, i, extra) {
@@ -893,7 +921,7 @@ async function doSearch() {
   const seq = ++searchSeq;
   if (!q) {
     FF.lastData = null; FF.pendingKinds = null;
-    $("results-wrap").innerHTML = "";
+    $("results-wrap").innerHTML = '<div class="empty">输入关键词开始搜索</div>';
     hideLoading();
     renderStatus(null);
     setBadges("index");
@@ -937,13 +965,13 @@ async function doSearch() {
     hideLoading();
     FF.pendingKinds = null;
     $("results-wrap").innerHTML =
-      `<div class="empty">连接内核失败：${esc(e.message || e)}${FF.mock ? "" : "<br><br>内核未启动？可在 ⚙ 设置里开启 Mock 模式预览 UI"}</div>`;
+      `<div class="empty">搜索暂时不可用，请稍后重试<br><br>${esc(e.message || e)}</div>`;
     renderStatus("");
   }
 }
 
 function statusSuffix() {
-  return FF.mock ? ' <span class="mock-tag">MOCK</span>' : "";
+  return FF.mock ? ' <span class="mock-tag">演示</span>' : "";
 }
 
 /* 纯客户端过滤渲染：切 tab 零请求 */
@@ -953,7 +981,7 @@ function renderFiltered() {
   const box = $("results-wrap");
   FF.flat = [];
   FF.sel = -1;
-  if (!data) { box.innerHTML = ""; return; }
+  if (!data) { box.innerHTML = '<div class="empty">输入关键词开始搜索</div>'; return; }
   const groups = data.groups || {};
   const wanted = FF.kinds ? [FF.kinds] : KIND_KEYS;
   const pending = FF.pendingKinds || [];
@@ -967,13 +995,13 @@ function renderFiltered() {
     }
     total += hits.length;
     const collapsed = FF.collapsed[g.k] ? " collapsed" : "";
-    const trunc = data.truncated && data.truncated[g.k] ? '<span class="g-trunc">仅前 20 条</span>' : "";
+    const truncated = data.truncated && data.truncated[g.k];
+    const countLabel = truncated ? `前 ${hits.length} 条` : `${hits.length} 条`;
     html += `<div class="group${collapsed}" data-group="${g.k}">
       <div class="group-head" data-toggle="${g.k}">
         <span class="g-icon">${g.icon}</span>
         <span class="g-label">${g.label}</span>
-        <span class="g-kind">${g.k}</span>
-        <span class="g-count">${hits.length}</span>${trunc}
+        <span class="g-count">${countLabel}</span>
         <span class="g-arrow">&#x25BC;</span>
       </div>
       <div class="group-body">`;
@@ -986,13 +1014,13 @@ function renderFiltered() {
   if (!total && !html) {
     box.innerHTML = pending.length
       ? wanted.map(k => pendingGroupHTML(GROUPS.find(g => g.k === k))).join("")
-      : `<div class="empty">无结果 —— 试试去掉过滤条件，或换个关键词</div>`;
+      : `<div class="empty">无结果，试试去掉过滤条件或换个关键词</div>`;
   } else {
     box.innerHTML = html;
   }
   setBadges("results", groups, data.truncated);
   const took = data.took_ms != null ? ` · ${data.took_ms}ms` : "";
-  renderStatus(total ? `${total} 条命中${pending.length ? "+" : ""}${took}` : "");
+  renderStatus(total ? `已显示 ${total} 条${pending.length ? "+" : ""}${took}` : "");
 }
 
 function pendingGroupHTML(g) {
@@ -1009,19 +1037,21 @@ function renderStatus(text) {
 }
 
 function hitHTML(h, kind, idx) {
-  const ico = kind === "file" || kind === "content" ? iconFor(h.title || h.path) : KIND_ICONS[kind];
+  const isFile = kind === "file" || kind === "content";
+  const ico = isFile ? fileVisual(h) : `<span class="ico">${KIND_ICONS[kind]}</span>`;
   const title = hi(h.title || "(无标题)");
   const snippet = h.snippet ? `<div class="snippet">${hi(h.snippet)}</div>` : "";
   const pathLine = h.path ? `<div class="path">${esc(h.path)}</div>` : (h.cwd ? `<div class="path">${esc(h.cwd)}</div>` : "");
   let meta = "";
+  if (isFile) meta += `<span class="file-type">${esc(fileTypeFor(h).meta)}</span>`;
   const ag = h.agent && AGENTS[h.agent];
   if (ag) meta += `<span class="agent-badge"><span class="a-dot" style="background:${ag.c}"></span>${ag.n}</span>`;
   else if (h.agent) meta += `<span class="agent-badge"><span class="a-dot" style="background:#999"></span>${esc(h.agent)}</span>`;
   if (h.project) meta += `<span class="proj-tag">&#x25B8; ${esc(h.project)}</span>`;
   if (h.mtime) meta += `<span>${fmtTime(h.mtime)}</span>`;
-  if (h.score != null) meta += `<span>${Number(h.score).toFixed(2)}</span>`;
-  return `<div class="result" data-idx="${idx}">
-    <span class="ico">${ico}</span>
+  const hint = kind === "session" ? "单击选中，双击预览" : "单击选中，双击打开";
+  return `<div class="result" data-idx="${idx}" title="${hint}">
+    ${ico}
     <div class="info">
       <div class="name">${title}</div>
       ${snippet}${pathLine}
@@ -1044,7 +1074,7 @@ function actsHTML(h, kind) {
   return b.join("");
 }
 
-/* 结果区事件委托 */
+/* 行单击只选中；双击执行默认动作，动作按钮保持单击。 */
 $("results-wrap").addEventListener("click", e => {
   const head = e.target.closest("[data-toggle]");
   if (head) {
@@ -1060,7 +1090,15 @@ $("results-wrap").addEventListener("click", e => {
   if (!entry) return;
   select(idx);
   const actBtn = e.target.closest("[data-act]");
-  if (actBtn) { e.stopPropagation(); doAction(actBtn.dataset.act, entry); return; }
+  if (actBtn) { e.stopPropagation(); doAction(actBtn.dataset.act, entry); }
+});
+$("results-wrap").addEventListener("dblclick", e => {
+  const row = e.target.closest(".result");
+  if (!row || e.target.closest("[data-act]")) return;
+  const idx = +row.dataset.idx;
+  const entry = FF.flat[idx];
+  if (!entry) return;
+  select(idx);
   doAction(entry.kind === "session" ? "preview" : "open", entry);
 });
 
@@ -1153,13 +1191,6 @@ const SEG_DEFS = [
 ];
 const segEls = {};
 
-function fmtCount(n) {
-  if (n == null) return "";
-  if (n >= 1e8) return (n / 1e8).toFixed(1).replace(/\.0$/, "") + " 亿";
-  if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + " 万";
-  return String(n);
-}
-
 function moveSegIndicator(animate) {
   const seg = $("seg"), ind = $("seg-ind");
   const btn = seg.querySelector(".seg.active");
@@ -1229,15 +1260,8 @@ function setBadges(mode, groups, truncated) {
       if (truncated && truncated[d.k]) anyTrunc = true;
     });
     counts[""] = sum ? String(sum) + (anyTrunc ? "+" : "") : "";
-  } else {
-    const idx = FF.indexCounts || {};
-    counts[""] = fmtCount((idx.files || 0) + (idx.sessions || 0) + (idx.skills || 0) + (idx.memories || 0)) || "";
-    counts.file = fmtCount(idx.files);
-    counts.content = "";
-    counts.session = fmtCount(idx.sessions);
-    counts.skill = fmtCount(idx.skills);
-    counts.memory = fmtCount(idx.memories);
   }
+  // 未搜索时不展示索引总量：数字不代表命中，容易误以为已有结果。
   Object.entries(segEls).forEach(([k, b]) => {
     b.querySelector(".seg-count").textContent = counts[k] || "";
   });
@@ -1350,15 +1374,27 @@ function setHotkeyUI(combo) {
   });
 })();
 
-$("kernel-save").addEventListener("click", async () => {
-  const v = $("kernel-input").value.trim();
-  if (!/^https?:\/\//.test(v)) { toast("内核地址需以 http:// 开头"); return; }
-  FF.cfg.kernel_url = v;
-  await saveConfig();
-  FF.resultCache.clear();
-  toast("内核地址已保存");
-  loadHealth();
-  doSearch();
+$("data-dir-browse").addEventListener("click", async () => {
+  if (!invoke) { toast("仅桌面版支持更改索引位置"); return; }
+  const btn = $("data-dir-browse");
+  try {
+    const selected = await invoke("choose_data_dir");
+    if (!selected) return;
+    btn.disabled = true;
+    btn.textContent = "迁移中…";
+    toast("正在迁移索引，期间搜索会短暂不可用", 5000);
+    const result = await invoke("set_data_dir", { path: selected });
+    FF.cfg.data_dir = result.data_dir || selected;
+    FF.resultCache.clear();
+    toast("索引位置已更新，本地内核已重启");
+    loadHealth();
+    doSearch();
+  } catch (e) {
+    toast("更改索引位置失败：" + String(e), 5000);
+  } finally {
+    btn.textContent = "更改…";
+    updateStorageUI();
+  }
 });
 
 $("autostart-switch").addEventListener("click", async () => {
@@ -1378,18 +1414,6 @@ $("autostart-switch").addEventListener("click", async () => {
   }
 });
 
-$("mock-switch").addEventListener("click", () => {
-  FF.mock = !FF.mock;
-  FF.cfg.mock = FF.mock;
-  saveConfig();
-  localStorage.setItem("ff.mock", FF.mock ? "1" : "");
-  $("mock-switch").classList.toggle("on", FF.mock);
-  toast(FF.mock ? "Mock 模式已开启" : "Mock 模式已关闭");
-  FF.resultCache.clear();
-  loadHealth();
-  doSearch();
-});
-
 /* ============ 健康检查 / 引导页 ============ */
 let healthRetryTimer = null;
 async function loadHealth() {
@@ -1401,10 +1425,9 @@ async function loadHealth() {
     if (h.indexing) statusNote = "索引中…";
     $("onboard").classList.remove("show");
   } else if (!FF.mock) {
-    statusNote = "内核未连接";
-    $("ob-url").textContent = kernelBase();
+    statusNote = "正在准备搜索";
     $("onboard").classList.add("show");
-    // 内核拉起后自动恢复（5s 轮询，仅在引导页显示时）
+    // 后台就绪后自动恢复（5s 轮询，仅在引导页显示时）
     clearTimeout(healthRetryTimer);
     healthRetryTimer = setTimeout(() => {
       if ($("onboard").classList.contains("show") && !FF.mock) loadHealth();
@@ -1416,16 +1439,13 @@ async function loadHealth() {
   renderStatus($("q").value.trim() ? $("status").textContent.replace(/ ·.*$/, "") : "");
 }
 $("ob-retry").addEventListener("click", loadHealth);
-$("ob-settings").addEventListener("click", () => togglePopover("settings-card"));
-$("ob-mock").addEventListener("click", () => { if (!FF.mock) $("mock-switch").click(); });
 
 /* ============ 初始化 ============ */
 (async function init() {
   await loadConfig();
+  // 演示数据仅供自动化测试显式开启，不受历史配置影响，也不提供正式 UI 入口。
   const urlMock = new URLSearchParams(location.search).get("mock");
-  FF.mock = urlMock != null ? urlMock !== "0" : (FF.cfg.mock === true || localStorage.getItem("ff.mock") === "1");
-  $("mock-switch").classList.toggle("on", FF.mock);
-  $("kernel-input").value = kernelBase();
+  FF.mock = urlMock === "1";
   setHotkeyUI(FF.cfg.hotkey || "ctrl+shift+f");
   if (invoke) {
     try { $("autostart-switch").classList.toggle("on", !!(await invoke("get_autostart"))); } catch (e) {}

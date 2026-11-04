@@ -515,18 +515,11 @@ function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown }: {
 }
 
 /** 内核未启动引导页。 */
-function DownGuide({ detail, endpoint, onRetry }: { detail: string; endpoint: string; onRetry: () => void }): ReturnType<typeof createElement> {
-  let port = '8790'
-  try {
-    port = new URL(endpoint).port || '8790'
-  } catch { /* 展示默认值即可 */ }
+function DownGuide({ detail, onRetry }: { detail: string; onRetry: () => void }): ReturnType<typeof createElement> {
   return createElement('div', { className: 'rc-guide' },
-    createElement('div', { className: 'rc-guide-t' }, 'AnyFind 内核未启动'),
+    createElement('div', { className: 'rc-guide-t' }, '搜索服务未连接'),
     createElement('div', { className: 'rc-banner rc-banner-info' },
-      `面板与 agent 工具都依赖本地内核（${endpoint}）。启动后此处自动可用：`),
-    createElement('div', { className: 'rc-cmd' }, `anyfindd --port ${port}`),
-    createElement('div', { className: 'rc-banner rc-banner-info' },
-      '内核监听其他地址？在下方「内核地址」改成实际地址后重试。'),
+      '请先启动 AnyFind 桌面版。本地搜索服务会自动启动，无需配置地址或端口。'),
     detail !== '' ? createElement('div', { className: 'rc-banner rc-banner-err' }, detail) : null,
     createElement('button', { className: 'rc-btn rc-btn-pri', style: { alignSelf: 'flex-start' }, onClick: onRetry }, '⟳ 重新检测'),
   )
@@ -557,8 +550,6 @@ function RecallPanel(): ReturnType<typeof createElement> {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [synOpen, setSynOpen] = useState(false)
-  const [endpointDraft, setEndpointDraft] = useState('')
-  const [savedTip, setSavedTip] = useState(false)
   const [sel, setSel] = useState(-1)
   const [cmds, setCmds] = useState<Record<string, string>>({})
   const [resumeBusy, setResumeBusy] = useState<string | null>(null)
@@ -569,11 +560,10 @@ function RecallPanel(): ReturnType<typeof createElement> {
 
   const checkHealth = (): void => {
     void getHealth().then(
-      (h) => { setHealth(h); setDownDetail(null); setEndpointDraft(h.endpoint ?? '') },
+      (h) => { setHealth(h); setDownDetail(null) },
       (e: unknown) => {
         setHealth(null)
         setDownDetail(e instanceof Error ? e.message : String(e))
-        if (e instanceof CoreDown && e.endpoint !== undefined) setEndpointDraft(e.endpoint)
       },
     )
   }
@@ -601,8 +591,7 @@ function RecallPanel(): ReturnType<typeof createElement> {
         if (e instanceof CoreDown) {
           setHealth(null)
           setDownDetail(e.message)
-          if (e.endpoint !== undefined) setEndpointDraft(e.endpoint)
-          return
+                    return
         }
         setError(e instanceof Error ? e.message : String(e))
       },
@@ -627,23 +616,6 @@ function RecallPanel(): ReturnType<typeof createElement> {
     })
   }
 
-  const saveEndpoint = (): void => {
-    void fetch('/dsh-recall/api/config', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ endpoint: endpointDraft }),
-    }).then(async (res) => {
-      if (res.ok) {
-        setSavedTip(true)
-        setTimeout(() => { setSavedTip(false) }, 2000)
-        checkHealth()
-      } else {
-        const body = await res.json() as { error?: string }
-        setError(body.error ?? `HTTP ${res.status}`)
-      }
-    }).catch(() => {})
-  }
-
   const copyText = (text: string, tip: string): void => {
     void navigator.clipboard.writeText(text).then(
       () => { setToast(tip) },
@@ -666,8 +638,7 @@ function RecallPanel(): ReturnType<typeof createElement> {
           if (e instanceof CoreDown) {
             setHealth(null)
             setDownDetail('内核连接中断')
-            if (e.endpoint !== undefined) setEndpointDraft(e.endpoint)
-            return
+                        return
           }
           setError(e instanceof Error ? e.message : String(e))
         },
@@ -783,7 +754,7 @@ function RecallPanel(): ReturnType<typeof createElement> {
     createElement(SegControl, { active: activeKind, counts, onChange: (k) => { setActiveKind(k); setSel(0) } }),
     createElement('div', { className: 'rc-body' },
       health === null
-        ? createElement(DownGuide, { detail: downDetail ?? '', endpoint: endpointDraft || 'http://127.0.0.1:8790', onRetry: checkHealth })
+        ? createElement(DownGuide, { detail: downDetail ?? '', onRetry: checkHealth })
         : null,
       busy ? createElement(LoadingState) : null,
       !busy && health !== null && resp === null
@@ -819,21 +790,15 @@ function RecallPanel(): ReturnType<typeof createElement> {
             busyKey: resumeBusy === key,
             onResume: (hh) => { primaryAction(key, hh) },
             onCopy: copyText,
-            onDown: (ep) => {
+            onDown: () => {
               setHealth(null)
               setDownDetail('内核连接中断')
-              if (ep !== undefined) setEndpointDraft(ep)
             },
           })
         }),
       )) : []),
     ),
     toast !== '' ? createElement('div', { className: 'rc-toast' }, toast) : null,
-    createElement('div', { className: 'rc-foot', title: '统一搜索内核地址（默认 http://127.0.0.1:8790）' },
-      createElement('span', { style: { fontSize: 11, color: 'var(--rc-mut)', flex: 'none' } }, '内核地址'),
-      createElement('input', { value: endpointDraft, placeholder: 'http://127.0.0.1:8790', onChange: (e: { target: { value: string } }) => { setEndpointDraft(e.target.value) } }),
-      createElement('button', { className: 'rc-btn', onClick: saveEndpoint }, savedTip ? '✓ 已保存' : '保存'),
-    ),
   )
 }
 

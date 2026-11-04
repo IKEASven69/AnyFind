@@ -54,7 +54,14 @@ export const KIND_LABEL: Record<string, string> = {
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8790'
 
-/** 内核地址：插件 config.endpoint 初始化，/dsh-recall/api/config 可运行时改。 */
+function normalizeEndpoint(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '')
+  const url = new URL(trimmed) // 非法即抛
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('endpoint 必须是 http(s) URL')
+  return trimmed
+}
+
+/** host 启动时由 index.ts 自动发现桌面端地址；浏览器半保持零 Node 依赖。 */
 let endpoint = DEFAULT_ENDPOINT
 
 export function getEndpoint(): string {
@@ -63,20 +70,13 @@ export function getEndpoint(): string {
 
 /** 设置内核地址；非法 URL 抛错（路由层转 400）。 */
 export function setEndpoint(raw: string): void {
-  const trimmed = raw.trim().replace(/\/+$/, '')
-  if (trimmed === '') {
-    endpoint = DEFAULT_ENDPOINT
-    return
-  }
-  const url = new URL(trimmed) // 非法即抛
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('endpoint 必须是 http(s) URL')
-  endpoint = trimmed
+  const trimmed = raw.trim()
+  endpoint = trimmed === '' ? DEFAULT_ENDPOINT : normalizeEndpoint(trimmed)
 }
 
 /** 内核未启动时的引导文案（面板引导页 / 工具友好错误共用）。 */
 export const KERNEL_DOWN_HINT =
-  'AnyFind 内核未启动。启动方式：运行 `anyfindd --port 8790`（保持进程常驻），' +
-  '然后回到本面板重试；如内核监听其他地址，请在插件设置里修改内核地址。'
+  'AnyFind 搜索服务未启动。请先启动 AnyFind 桌面版（会自动启动本地搜索内核），然后回到本面板重试。'
 
 /** 内核不可达错误：调用方据此输出友好提示而非堆栈。 */
 export class KernelDownError extends Error {

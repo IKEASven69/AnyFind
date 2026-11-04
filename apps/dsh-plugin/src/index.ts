@@ -8,7 +8,9 @@
  * @module dsh-recall
  */
 
+import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the Context.tools / Context.webServer merges（宿主提供，不打进产物）。
 import type {} from '@deepseek-ai/dsh-tools'
@@ -25,6 +27,24 @@ export interface Config {
 }
 
 export const name = 'dsh-recall'
+
+const DEFAULT_ENDPOINT = 'http://127.0.0.1:8790'
+
+/** 跟随桌面端自动分配的实际端口；仅 host 半读取，浏览器半不打包 Node 模块。 */
+export function discoverEndpoint(configPath?: string): string {
+  const path = configPath ?? (process.env.APPDATA ? join(process.env.APPDATA, 'anyfind', 'config.json') : '')
+  if (path === '') return DEFAULT_ENDPOINT
+  try {
+    const cfg = JSON.parse(readFileSync(path, 'utf8')) as { kernel_url?: unknown }
+    if (typeof cfg.kernel_url !== 'string' || cfg.kernel_url.trim() === '') return DEFAULT_ENDPOINT
+    const endpoint = cfg.kernel_url.trim().replace(/\/+$/, '')
+    const url = new URL(endpoint)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return DEFAULT_ENDPOINT
+    return endpoint
+  } catch {
+    return DEFAULT_ENDPOINT
+  }
+}
 
 // ---------------------------------------------------------------------------
 // /recall 斜杠命令：ctx.commands 结构子集（对齐 @deepseek-ai/dsh-commands 的
@@ -268,8 +288,11 @@ export function apply(ctx: Context, config?: Config): void {
     try {
       setEndpoint(config.endpoint)
     } catch (e) {
-      ctx.logger.warn(`dsh-recall: config.endpoint 非法（${e instanceof Error ? e.message : String(e)}），回退默认 ${getEndpoint()}`)
+      ctx.logger.warn(`dsh-recall: config.endpoint 非法（${e instanceof Error ? e.message : String(e)}），回退自动发现`)
+      setEndpoint(discoverEndpoint())
     }
+  } else {
+    setEndpoint(discoverEndpoint())
   }
   ctx.logger.info(`dsh-recall: 统一搜索已加载（内核 ${getEndpoint()}）`)
 

@@ -255,12 +255,12 @@ pub fn iso_of(mtime: f64) -> Option<String> {
     util::iso_ts(Some(mtime))
 }
 
-/// 批量模式开始：关同步 + 内存 journal + 大页缓存 + 暂缓二级索引。
+/// 批量模式开始：关同步 + 内存 journal + 有界页缓存 + 暂缓二级索引。
 /// 配 bulk_end 使用；崩溃则全量重来，可接受。
 pub fn bulk_begin(conn: &Connection) {
     let _ = conn.pragma_update(None, "synchronous", "OFF");
     let _ = conn.pragma_update(None, "journal_mode", "MEMORY");
-    let _ = conn.pragma_update(None, "cache_size", -500000i64); // ~500MB page cache
+    let _ = conn.pragma_update(None, "cache_size", -131072i64); // 128MB page cache
     let _ = conn.execute("DROP INDEX IF EXISTS files_name", []);
 }
 
@@ -268,6 +268,8 @@ pub fn bulk_end(conn: &Connection) {
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS files_name ON files(name)", []);
     let _ = conn.pragma_update(None, "journal_mode", "WAL");
     let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+    let _ = conn.pragma_update(None, "cache_size", -32768i64); // 常驻恢复为 32MB
+    let _ = conn.execute_batch("PRAGMA shrink_memory;");
 }
 
 /// 把一卷的 MFT 枚举结果写入 files 表（先清该卷旧行再裸 INSERT）。

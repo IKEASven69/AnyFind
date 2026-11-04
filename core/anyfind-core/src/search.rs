@@ -16,6 +16,7 @@ pub struct Hit {
     pub kind: String,
     pub title: Option<String>,
     pub path: Option<String>,
+    pub is_dir: Option<bool>,
     pub snippet: Option<String>,
     pub mtime: Option<String>,
     pub agent: Option<String>,
@@ -31,6 +32,7 @@ impl Hit {
             kind: kind.to_string(),
             title: None,
             path: None,
+            is_dir: None,
             snippet: None,
             mtime: None,
             agent: None,
@@ -71,7 +73,10 @@ fn in_date(mtime_iso: Option<&str>, dr: Option<&DateRange>) -> bool {
     let Ok(dt) = chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%dT%H:%M:%S") else {
         return false;
     };
-    let Some(ts) = dt.and_local_timezone(chrono::Local).single().map(|t| t.timestamp() as f64)
+    let Some(ts) = dt
+        .and_local_timezone(chrono::Local)
+        .single()
+        .map(|t| t.timestamp() as f64)
     else {
         return false;
     };
@@ -202,13 +207,21 @@ fn project_for_path(conn: &Connection, path: &str) -> Option<String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
-    let home = crate::paths::home().to_string_lossy().to_lowercase().replace('/', "\\");
+    let home = crate::paths::home()
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('/', "\\");
     let cwds = {
         let mut guard = cache.lock().ok()?;
         if now - guard.0 > 300.0 {
             let mut set: Vec<String> = db::distinct_cwds(conn, 1000)
                 .into_iter()
-                .map(|c| c.to_lowercase().replace('/', "\\").trim_end_matches('\\').to_string())
+                .map(|c| {
+                    c.to_lowercase()
+                        .replace('/', "\\")
+                        .trim_end_matches('\\')
+                        .to_string()
+                })
                 .filter(|c| c.len() > 3 && *c != home)
                 .collect();
             set.sort_by_key(|c| std::cmp::Reverse(c.len()));
@@ -247,12 +260,11 @@ fn search_file_group_mem(
             break;
         }
         // 批量回查 path/mtime/name
-        let mut stmt = match conn
-            .prepare("SELECT path, name, size, mtime, is_dir FROM files WHERE id=?")
-        {
-            Ok(s) => s,
-            Err(_) => break,
-        };
+        let mut stmt =
+            match conn.prepare("SELECT path, name, size, mtime, is_dir FROM files WHERE id=?") {
+                Ok(s) => s,
+                Err(_) => break,
+            };
         out.clear();
         for m in &matches {
             let row = stmt
@@ -280,7 +292,10 @@ fn search_file_group_mem(
             if !in_date(mtime_iso.as_deref(), filters.date.as_ref()) {
                 continue;
             }
-            out.push(FileCand { hit: nh, score: m.score });
+            out.push(FileCand {
+                hit: nh,
+                score: m.score,
+            });
             if out.len() >= fetch {
                 break;
             }
@@ -301,7 +316,9 @@ fn browse_file_group(conn: &Connection, filters: &Filters, fetch: usize) -> Vec<
         "SELECT f.path, f.name, f.size, f.mtime, f.is_dir
          FROM files f WHERE 1=1{where_sql} LIMIT ?"
     );
-    let Ok(mut stmt) = conn.prepare(&sql) else { return Vec::new() };
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Vec::new();
+    };
     let rows = stmt.query_map(params_from_iter(params.iter()), |r| {
         Ok(FileCand {
             hit: scanner::NameHit {
@@ -335,7 +352,9 @@ fn search_file_group(
             return search_file_group_mem(conn, ni, query, filters, fetch);
         }
     }
-    let Some(expr) = &query.expr else { return Vec::new() };
+    let Some(expr) = &query.expr else {
+        return Vec::new();
+    };
     let words = dsl::positive_terms(query);
     if words.is_empty() {
         return Vec::new();
@@ -487,7 +506,10 @@ fn sql_project_like(col: &str, vals: &[String]) -> (String, Vec<rusqlite::types:
 }
 
 fn sql_like_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// 无关键词的字段浏览：把路径、扩展名、时间和大小过滤下推到 SQL，
@@ -611,7 +633,9 @@ fn browse_session_group(
          SELECT agent, session_id, title, path, cwd, project, mtime
          FROM matching WHERE rn=1 ORDER BY mtime DESC LIMIT ? OFFSET ?"
     );
-    let Ok(mut stmt) = conn.prepare(&sql) else { return Vec::new() };
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Vec::new();
+    };
     let rows = stmt.query_map(params_from_iter(params.iter()), |r| {
         let sid = r.get::<_, String>(1)?;
         let mut hit = Hit::new("session");
@@ -640,7 +664,9 @@ fn search_session_group(
     if query.expr.is_none() {
         return browse_session_group(conn, filters, limit, offset);
     }
-    let Some(expr) = &query.expr else { return Vec::new() };
+    let Some(expr) = &query.expr else {
+        return Vec::new();
+    };
     let terms = dsl::positive_terms(query);
     if terms.is_empty() {
         return Vec::new();
@@ -651,7 +677,11 @@ fn search_session_group(
     // 过滤下推 SQL（Python 语义；后过滤仍保留兜底）：agent / project / role
     let (agent_sql, agent_p) = sql_in_eq("s.agent", &filters.agents);
     let (proj_sql, proj_p) = sql_project_like("s.project", &filters.projects);
-    let role_sql = if filters.role.is_some() { " AND m.role = ?" } else { "" };
+    let role_sql = if filters.role.is_some() {
+        " AND m.role = ?"
+    } else {
+        ""
+    };
     let extra_sql = format!("{agent_sql}{proj_sql}{role_sql}");
     let mut extra_p = agent_p;
     extra_p.extend(proj_p);
@@ -718,7 +748,11 @@ fn search_session_group(
         let mut h = Hit::new("session");
         h.title = Some(val_text(c.get(6)).unwrap_or_else(|| sid.clone()));
         h.path = path;
-        h.snippet = Some(snippet_of(&val_text(c.get(1)).unwrap_or_default(), &text, &terms));
+        h.snippet = Some(snippet_of(
+            &val_text(c.get(1)).unwrap_or_default(),
+            &text,
+            &terms,
+        ));
         h.mtime = mtime;
         h.agent = Some(agent);
         h.project = project;
@@ -749,7 +783,9 @@ fn browse_content_group(
          FROM content c JOIN files f ON f.id=c.file_id
          WHERE 1=1{where_sql} ORDER BY f.mtime DESC LIMIT ? OFFSET ?"
     );
-    let Ok(mut stmt) = conn.prepare(&sql) else { return Vec::new() };
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Vec::new();
+    };
     let rows = stmt.query_map(params_from_iter(params.iter()), |r| {
         let text = r.get::<_, String>(3)?;
         let mut hit = Hit::new("content");
@@ -775,7 +811,9 @@ fn search_content_group(
     if query.expr.is_none() {
         return browse_content_group(conn, filters, limit, offset);
     }
-    let Some(expr) = &query.expr else { return Vec::new() };
+    let Some(expr) = &query.expr else {
+        return Vec::new();
+    };
     let terms = dsl::positive_terms(query);
     if terms.is_empty() {
         return Vec::new();
@@ -829,7 +867,11 @@ fn search_content_group(
         let mut h = Hit::new("content");
         h.title = val_text(c.get(1));
         h.path = path;
-        h.snippet = Some(snippet_of(&val_text(c.get(3)).unwrap_or_default(), &text, &terms));
+        h.snippet = Some(snippet_of(
+            &val_text(c.get(3)).unwrap_or_default(),
+            &text,
+            &terms,
+        ));
         h.mtime = mtime;
         h.score = val_f64(c.get(4)).map(rank_score);
         hits.push(h);
@@ -865,7 +907,9 @@ fn browse_agent_files_group(
          FROM agent_files a WHERE a.kind=?{extra_sql}
          ORDER BY a.mtime DESC LIMIT ? OFFSET ?"
     );
-    let Ok(mut stmt) = conn.prepare(&sql) else { return Vec::new() };
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Vec::new();
+    };
     let rows = stmt.query_map(params_from_iter(all_params.iter()), |r| {
         let text = r.get::<_, String>(5)?;
         let mut hit = Hit::new(kind);
@@ -894,7 +938,9 @@ fn search_agent_files_group(
     if query.expr.is_none() {
         return browse_agent_files_group(conn, filters, kind, limit, offset);
     }
-    let Some(expr) = &query.expr else { return Vec::new() };
+    let Some(expr) = &query.expr else {
+        return Vec::new();
+    };
     let terms = dsl::positive_terms(query);
     if terms.is_empty() {
         return Vec::new();
@@ -917,8 +963,12 @@ fn search_agent_files_group(
              WHERE agent_files_fts MATCH ? AND a.kind = ?{extra_sql}
              ORDER BY rank LIMIT ?"
         );
-        let mut p: Vec<rusqlite::types::Value> =
-            vec![open.into(), close.into(), fts_q.into(), kind.to_string().into()];
+        let mut p: Vec<rusqlite::types::Value> = vec![
+            open.into(),
+            close.into(),
+            fts_q.into(),
+            kind.to_string().into(),
+        ];
         p.extend(extra_p);
         p.push((cap as i64).into());
         fetch_rows(conn, &sql, p, 8, expr, dsl::expr_needs_verify(expr), cap)
@@ -959,7 +1009,11 @@ fn search_agent_files_group(
         let mut h = Hit::new(kind);
         h.title = val_text(c.get(3));
         h.path = path;
-        h.snippet = Some(snippet_of(&val_text(c.get(6)).unwrap_or_default(), &text, &terms));
+        h.snippet = Some(snippet_of(
+            &val_text(c.get(6)).unwrap_or_default(),
+            &text,
+            &terms,
+        ));
         h.mtime = mtime;
         h.agent = agent;
         h.project = project;
@@ -1026,10 +1080,12 @@ pub fn unified_search(
                                 let mut h = Hit::new("file");
                                 h.title = Some(c.hit.name.clone());
                                 h.path = Some(c.hit.path.clone());
+                                h.is_dir = Some(c.hit.is_dir);
                                 h.mtime = util::iso_ts(Some(c.hit.mtime));
-                                h.score = query.expr.as_ref().map(|_| {
-                                    (c.score * 10000.0).round() / 10000.0
-                                });
+                                h.score = query
+                                    .expr
+                                    .as_ref()
+                                    .map(|_| (c.score * 10000.0).round() / 10000.0);
                                 h
                             })
                             .collect();
@@ -1064,7 +1120,8 @@ pub fn unified_search(
                         (kind, hits, trunc)
                     }
                     k => {
-                        let hits = search_agent_files_group(&conn, query, filters, k, limit, offset);
+                        let hits =
+                            search_agent_files_group(&conn, query, filters, k, limit, offset);
                         let trunc = hits.len() >= limit;
                         (kind, hits, trunc)
                     }

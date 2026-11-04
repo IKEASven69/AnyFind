@@ -1,3 +1,7 @@
+// src/index.ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 // node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
   return value === null || value === void 0;
@@ -7261,21 +7265,21 @@ var KIND_LABEL = {
   memory: "\u8BB0\u5FC6"
 };
 var DEFAULT_ENDPOINT = "http://127.0.0.1:8790";
+function normalizeEndpoint(raw) {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  const url = new URL(trimmed);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("endpoint \u5FC5\u987B\u662F http(s) URL");
+  return trimmed;
+}
 var endpoint = DEFAULT_ENDPOINT;
 function getEndpoint() {
   return endpoint;
 }
 function setEndpoint(raw) {
-  const trimmed = raw.trim().replace(/\/+$/, "");
-  if (trimmed === "") {
-    endpoint = DEFAULT_ENDPOINT;
-    return;
-  }
-  const url = new URL(trimmed);
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("endpoint \u5FC5\u987B\u662F http(s) URL");
-  endpoint = trimmed;
+  const trimmed = raw.trim();
+  endpoint = trimmed === "" ? DEFAULT_ENDPOINT : normalizeEndpoint(trimmed);
 }
-var KERNEL_DOWN_HINT = "AnyFind \u5185\u6838\u672A\u542F\u52A8\u3002\u542F\u52A8\u65B9\u5F0F\uFF1A\u8FD0\u884C `anyfindd --port 8790`\uFF08\u4FDD\u6301\u8FDB\u7A0B\u5E38\u9A7B\uFF09\uFF0C\u7136\u540E\u56DE\u5230\u672C\u9762\u677F\u91CD\u8BD5\uFF1B\u5982\u5185\u6838\u76D1\u542C\u5176\u4ED6\u5730\u5740\uFF0C\u8BF7\u5728\u63D2\u4EF6\u8BBE\u7F6E\u91CC\u4FEE\u6539\u5185\u6838\u5730\u5740\u3002";
+var KERNEL_DOWN_HINT = "AnyFind \u641C\u7D22\u670D\u52A1\u672A\u542F\u52A8\u3002\u8BF7\u5148\u542F\u52A8 AnyFind \u684C\u9762\u7248\uFF08\u4F1A\u81EA\u52A8\u542F\u52A8\u672C\u5730\u641C\u7D22\u5185\u6838\uFF09\uFF0C\u7136\u540E\u56DE\u5230\u672C\u9762\u677F\u91CD\u8BD5\u3002";
 var KernelDownError = class extends Error {
   constructor(message, causeMessage) {
     super(message);
@@ -7381,6 +7385,21 @@ function formatForCommand(resp) {
 
 // src/index.ts
 var name = "dsh-recall";
+var DEFAULT_ENDPOINT2 = "http://127.0.0.1:8790";
+function discoverEndpoint(configPath) {
+  const path = configPath ?? (process.env.APPDATA ? join(process.env.APPDATA, "anyfind", "config.json") : "");
+  if (path === "") return DEFAULT_ENDPOINT2;
+  try {
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof cfg.kernel_url !== "string" || cfg.kernel_url.trim() === "") return DEFAULT_ENDPOINT2;
+    const endpoint2 = cfg.kernel_url.trim().replace(/\/+$/, "");
+    const url = new URL(endpoint2);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return DEFAULT_ENDPOINT2;
+    return endpoint2;
+  } catch {
+    return DEFAULT_ENDPOINT2;
+  }
+}
 function renderText(_args, value) {
   return [{ type: "text", text: String(value) }];
 }
@@ -7572,8 +7591,11 @@ function apply(ctx, config) {
     try {
       setEndpoint(config.endpoint);
     } catch (e) {
-      ctx.logger.warn(`dsh-recall: config.endpoint \u975E\u6CD5\uFF08${e instanceof Error ? e.message : String(e)}\uFF09\uFF0C\u56DE\u9000\u9ED8\u8BA4 ${getEndpoint()}`);
+      ctx.logger.warn(`dsh-recall: config.endpoint \u975E\u6CD5\uFF08${e instanceof Error ? e.message : String(e)}\uFF09\uFF0C\u56DE\u9000\u81EA\u52A8\u53D1\u73B0`);
+      setEndpoint(discoverEndpoint());
     }
+  } else {
+    setEndpoint(discoverEndpoint());
   }
   ctx.logger.info(`dsh-recall: \u7EDF\u4E00\u641C\u7D22\u5DF2\u52A0\u8F7D\uFF08\u5185\u6838 ${getEndpoint()}\uFF09`);
   ctx.inject(["tools"], (tc) => {
@@ -7603,6 +7625,7 @@ function apply(ctx, config) {
 }
 export {
   apply,
+  discoverEndpoint,
   name,
   runSearch
 };

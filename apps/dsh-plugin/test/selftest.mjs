@@ -5,6 +5,8 @@
 //   内核 down 的友好降级。
 // 用法：npm run build && npm run selftest
 import { spawn } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -19,6 +21,16 @@ function check(name, cond, detail = '') {
   if (cond) { passed++; console.log(`  ✓ ${name}`) }
   else { failed++; console.log(`  ✗ ${name}${detail !== '' ? ` — ${detail}` : ''}`) }
 }
+
+console.log('▶ 桌面端内核地址自动发现：')
+const { discoverEndpoint } = await import('../lib/index.js')
+const discoveryDir = mkdtempSync(join(tmpdir(), 'anyfind-discovery-'))
+const discoveryConfig = join(discoveryDir, 'config.json')
+writeFileSync(discoveryConfig, JSON.stringify({ kernel_url: 'http://127.0.0.1:19321/' }))
+check('读取桌面端自动分配的端口', discoverEndpoint(discoveryConfig) === 'http://127.0.0.1:19321')
+writeFileSync(discoveryConfig, '{broken')
+check('配置损坏时安全回退默认地址', discoverEndpoint(discoveryConfig) === 'http://127.0.0.1:8790')
+rmSync(discoveryDir, { recursive: true, force: true })
 
 // ---------------------------------------------------------------------------
 // 假 cordis ctx：捕获注册面
@@ -169,7 +181,7 @@ try {
   mock.kill()
   await delay(300)
   const healthDown = await callRoute('/dsh-recall/api/health')
-  check('health → 502 + down 标记 + 引导', healthDown.statusCode === 502 && healthDown.json().down === true && healthDown.json().hint.includes('anyfindd --port 8790'))
+  check('health → 502 + down 标记 + 引导', healthDown.statusCode === 502 && healthDown.json().down === true && healthDown.json().hint.includes('AnyFind 桌面版'))
   const toolDown = await tool.execute({ query: 'nginx' }, {})
   check('工具返回友好错误而非抛出', typeof toolDown === 'string' && toolDown.includes('内核不可达') && toolDown.includes('未启动'))
   const cmdDown = await cmd.handler({ rawInput: ' nginx', signal: new AbortController().signal })

@@ -1,16 +1,95 @@
 //! anyfindd：HTTP daemon，实现 docs/api-contract.md v0.1。
 //! 端点：GET /api/health /api/search /api/session/{id}；POST /api/resume /api/reindex。
-//! 默认端口 8765（契约），--port 可配。
+//! 默认端口 8790（契约），--port 可配。
 
 use anyfind_core::name_index::NameIndex;
 use anyfind_core::{agent_files, db, paths, resume, scanner, search};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
 
 const API_VERSION: &str = "0.1.0";
 
 type SharedNames = Arc<RwLock<NameIndex>>;
+
+/// 健康接口只读内存计数；计数在初始化和各索引批次结束后刷新。
+#[derive(Default)]
+struct IndexStats {
+    files: AtomicI64,
+    sessions: AtomicI64,
+    skills: AtomicI64,
+    memories: AtomicI64,
+}
+
+impl IndexStats {
+    fn refresh(&self, conn: &rusqlite::Connection) {
+        let (skills, memories) = db::agent_file_counts(conn);
+        self.files.store(db::file_count(conn), Ordering::Relaxed);
+        self.sessions
+            .store(db::session_count(conn), Ordering::Relaxed);
+        self.skills.store(skills, Ordering::Relaxed);
+        self.memories.store(memories, Ordering::Relaxed);
+    }
+}
+
+/// 同一索引库只允许一个 anyfindd；操作系统在进程退出时自动释放锁。
+struct DbInstanceGuard {
+    #[cfg(windows)]
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    #[cfg(not(windows))]
+    lock_path: PathBuf,
+}
+
+impl DbInstanceGuard {
+    fn acquire(db_path: &Path) -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+            use windows_sys::Win32::System::Threading::CreateMutexW;
+
+            let normalized = db_path.to_string_lossy().to_lowercase().replace('/', "\\");
+            let mut hasher = DefaultHasher::new();
+            normalized.hash(&mut hasher);
+            let name = format!("Local\\AnyFindDb-{:016x}", hasher.finish());
+            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
+            if handle.is_null() {
+                return Err("无法创建索引实例锁".into());
+            }
+            if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+                unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+                return Err(format!(
+                    "索引库已由另一个 AnyFind 内核使用: {}",
+                    db_path.display()
+                ));
+            }
+            Ok(Self { handle })
+        }
+        #[cfg(not(windows))]
+        {
+            let lock_path = db_path.with_extension("lock");
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+                .map_err(|_| format!("索引库已由另一个 AnyFind 内核使用: {}", db_path.display()))?;
+            Ok(Self { lock_path })
+        }
+    }
+}
+
+impl Drop for DbInstanceGuard {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.handle);
+        }
+        #[cfg(not(windows))]
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
 
 fn names_blob_path() -> PathBuf {
     paths::data_dir().join("names.bin")
@@ -28,7 +107,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        port: 8765,
+        port: 8790,
         root: None,
         drives: None,
         no_index: false,
@@ -41,7 +120,7 @@ fn parse_args() -> Args {
         match arg.as_str() {
             "--port" => {
                 if let Some(v) = it.next() {
-                    a.port = v.parse().unwrap_or(8765);
+                    a.port = v.parse().unwrap_or(8790);
                 }
             }
             "--root" => {
@@ -49,8 +128,11 @@ fn parse_args() -> Args {
             }
             "--drives" => {
                 if let Some(v) = it.next() {
-                    a.drives =
-                        Some(v.split(',').map(|d| format!("{}:", d.trim_end_matches(':')).trim().to_string()).collect());
+                    a.drives = Some(
+                        v.split(',')
+                            .map(|d| format!("{}:", d.trim_end_matches(':')).trim().to_string())
+                            .collect(),
+                    );
                 }
             }
             "--content-root" => {
@@ -76,18 +158,22 @@ fn parse_args() -> Args {
 }
 
 fn open_db(db: &std::path::Path) -> Option<rusqlite::Connection> {
+    if let Some(dir) = db.parent() {
+        std::fs::create_dir_all(dir).ok()?;
+    }
     let conn = db::open(db).ok()?;
     let _ = db::ensure_tables(&conn);
     Some(conn)
 }
 
 /// 统一索引（会话 + skills/记忆）后台循环：立即跑一次，之后周期性指纹增量刷新。
-fn start_unified_index_loop(db_path: PathBuf, indexing: Arc<AtomicBool>) {
+fn start_unified_index_loop(db_path: PathBuf, indexing: Arc<AtomicBool>, stats: Arc<IndexStats>) {
     std::thread::spawn(move || loop {
         indexing.store(true, Ordering::Relaxed);
         if let Some(conn) = open_db(&db_path) {
             let _ = db::build_session_index(&conn);
             let _ = agent_files::build_agent_files_index(&conn);
+            stats.refresh(&conn);
         }
         indexing.store(false, Ordering::Relaxed);
         std::thread::sleep(std::time::Duration::from_secs(120));
@@ -104,13 +190,14 @@ type Watches = ();
 /// 完成后重建内存文件名索引并落盘 names.bin。
 /// 返回 USN 监听上下文（仅 windows 提权全盘模式非空；no_watch=true 时不产生）。
 fn file_index_body(
-    db_path: &std::path::Path,
+    db_path: &Path,
     root: &Option<PathBuf>,
     drives: &Option<Vec<String>>,
     content_roots: &[PathBuf],
     no_watch: bool,
     names: &SharedNames,
     indexing: &Arc<AtomicBool>,
+    stats: &Arc<IndexStats>,
 ) -> Watches {
     indexing.store(true, Ordering::Relaxed);
     #[cfg(windows)]
@@ -128,12 +215,17 @@ fn file_index_body(
             if !elevated {
                 // 非提权降级：逐卷目录遍历（跳系统目录）。USN 不可用，
                 // 靠下方 30 分钟周期指纹重扫兜底（不捕获删除，见日志）。
-                eprintln!("[anyfindd] 未提权，降级目录遍历（慢，一次性；\
-                           建议管理员运行启用 MFT 秒级索引）");
-                eprintln!("[anyfindd] 注意：非提权下文件名索引不实时更新，\
-                           每 30 分钟指纹增量重扫兜底");
-                let volumes =
-                    drives.clone().unwrap_or_else(anyfind_core::mft::list_ntfs_volumes);
+                eprintln!(
+                    "[anyfindd] 未提权，降级目录遍历（慢，一次性；\
+                           建议管理员运行启用 MFT 秒级索引）"
+                );
+                eprintln!(
+                    "[anyfindd] 注意：非提权下文件名索引不实时更新，\
+                           每 30 分钟指纹增量重扫兜底"
+                );
+                let volumes = drives
+                    .clone()
+                    .unwrap_or_else(anyfind_core::mft::list_ntfs_volumes);
                 for vol in &volumes {
                     let rootp = PathBuf::from(format!("{}:\\", vol.trim_end_matches(':')));
                     if !rootp.is_dir() {
@@ -153,7 +245,9 @@ fn file_index_body(
                     }
                 }
             } else {
-                let volumes = drives.clone().unwrap_or_else(anyfind_core::mft::list_ntfs_volumes);
+                let volumes = drives
+                    .clone()
+                    .unwrap_or_else(anyfind_core::mft::list_ntfs_volumes);
                 scanner::bulk_begin(&conn);
                 let mut degraded: Vec<String> = Vec::new();
                 for vol in volumes {
@@ -203,13 +297,19 @@ fn file_index_body(
             *g = idx;
         }
     }
+    stats.refresh(&conn);
     indexing.store(false, Ordering::Relaxed);
     watches
 }
 
 /// 文件索引：启动时跑一次 file_index_body；USN 增量监听替代 watchdog；
 /// 无 USN 时 30 分钟周期指纹重扫兜底。
-fn start_file_index(args: &Args, indexing: Arc<AtomicBool>, names: SharedNames) {
+fn start_file_index(
+    args: &Args,
+    indexing: Arc<AtomicBool>,
+    names: SharedNames,
+    stats: Arc<IndexStats>,
+) {
     let db_path = args.db.clone();
     let root = args.root.clone();
     let drives = args.drives.clone();
@@ -218,7 +318,14 @@ fn start_file_index(args: &Args, indexing: Arc<AtomicBool>, names: SharedNames) 
 
     std::thread::spawn(move || {
         let watches = file_index_body(
-            &db_path, &root, &drives, &content_roots, no_watch, &names, &indexing,
+            &db_path,
+            &root,
+            &drives,
+            &content_roots,
+            no_watch,
+            &names,
+            &indexing,
+            &stats,
         );
         // USN 增量监听（替代 watchdog）——复用枚举的 FRN 表，不二次枚举
         #[cfg(windows)]
@@ -289,11 +396,7 @@ fn start_usn_watch(
             for ch in changes {
                 match ch {
                     anyfind_core::usn::Change::Upsert(e) => {
-                        let _ = scanner::index_file(
-                            &conn,
-                            std::path::Path::new(&e.path),
-                            false,
-                        );
+                        let _ = scanner::index_file(&conn, std::path::Path::new(&e.path), false);
                         // 同步内存索引
                         if let Ok(rowid) = conn.query_row(
                             "SELECT id FROM files WHERE path=?",
@@ -360,29 +463,31 @@ fn send_json(rq: tiny_http::Request, code: u32, body: &serde_json::Value) {
     let resp = tiny_http::Response::from_string(data)
         .with_status_code(code)
         .with_header(
-            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json; charset=utf-8"[..])
-                .unwrap(),
+            tiny_http::Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"application/json; charset=utf-8"[..],
+            )
+            .unwrap(),
         );
     let _ = rq.respond(resp);
 }
 
 fn health(
-    db_path: &std::path::Path,
+    db_path: &Path,
+    stats: &IndexStats,
     indexing: &Arc<AtomicBool>,
     unified_indexing: &Arc<AtomicBool>,
 ) -> serde_json::Value {
-    let (mut files, mut sessions, mut skills, mut memories) = (0i64, 0i64, 0i64, 0i64);
-    if let Some(conn) = open_db(db_path) {
-        files = db::file_count(&conn);
-        sessions = db::session_count(&conn);
-        let (s, m) = db::agent_file_counts(&conn);
-        skills = s;
-        memories = m;
-    }
     serde_json::json!({
         "ok": true,
         "version": API_VERSION,
-        "index": {"files": files, "sessions": sessions, "skills": skills, "memories": memories},
+        "db_path": db_path.display().to_string(),
+        "index": {
+            "files": stats.files.load(Ordering::Relaxed),
+            "sessions": stats.sessions.load(Ordering::Relaxed),
+            "skills": stats.skills.load(Ordering::Relaxed),
+            "memories": stats.memories.load(Ordering::Relaxed),
+        },
         "indexing": indexing.load(Ordering::Relaxed) || unified_indexing.load(Ordering::Relaxed),
     })
 }
@@ -390,7 +495,8 @@ fn health(
 fn handle_get(
     rq: tiny_http::Request,
     url: &str,
-    db_path: &std::path::Path,
+    db_path: &Path,
+    stats: &Arc<IndexStats>,
     indexing: &Arc<AtomicBool>,
     unified_indexing: &Arc<AtomicBool>,
     names: &SharedNames,
@@ -402,7 +508,7 @@ fn handle_get(
     };
     match path {
         "/api/health" => {
-            send_json(rq, 200, &health(db_path, indexing, unified_indexing));
+            send_json(rq, 200, &health(db_path, stats, indexing, unified_indexing));
         }
         "/api/search" => {
             let qs = parse_query(query);
@@ -456,8 +562,9 @@ struct IdxCfg {
 fn handle_post(
     rq: tiny_http::Request,
     url: &str,
-    db_path: &std::path::Path,
+    db_path: &Path,
     indexing: &Arc<AtomicBool>,
+    stats: &Arc<IndexStats>,
     cfg: &Arc<IdxCfg>,
     names: &SharedNames,
 ) {
@@ -470,20 +577,35 @@ fn handle_post(
             let body: serde_json::Value = match serde_json::from_str(&body) {
                 Ok(v) => v,
                 Err(_) => {
-                    send_json(rq, 400, &serde_json::json!({"ok": false, "error": "请求体不是合法 JSON"}));
+                    send_json(
+                        rq,
+                        400,
+                        &serde_json::json!({"ok": false, "error": "请求体不是合法 JSON"}),
+                    );
                     return;
                 }
             };
             let agent = body.get("agent").and_then(|v| v.as_str()).unwrap_or("");
-            let sid = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
-            let mut cwd = body.get("cwd").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let sid = body
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut cwd = body
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let resp = match open_db(db_path).and_then(|c| resume::find_session(&c, sid)) {
                 None => serde_json::json!({"ok": false, "error": format!("会话未索引: {sid}")}),
                 Some(meta) => {
                     if cwd.is_empty() {
                         cwd = meta.cwd.clone().unwrap_or_default();
                     }
-                    let agent_eff = if agent.is_empty() { meta.agent.as_str() } else { agent };
+                    let agent_eff = if agent.is_empty() {
+                        meta.agent.as_str()
+                    } else {
+                        agent
+                    };
                     match resume::resume_command(agent_eff, &meta.session_id, Some(&cwd)) {
                         Err(e) => serde_json::json!({"ok": false, "command": null, "error": e}),
                         Ok(cmd) => {
@@ -508,6 +630,7 @@ fn handle_post(
             // 统一索引（会话/记忆/skills）+ 文件索引重扫（--root 目录或非提权降级卷；
             // 提权 MFT 模式做一次全量重枚举，不重复挂 USN 监听）
             let indexing = indexing.clone();
+            let stats = stats.clone();
             let dbp = db_path.to_path_buf();
             let cfg = cfg.clone();
             let names = names.clone();
@@ -516,6 +639,7 @@ fn handle_post(
                 if let Some(conn) = open_db(&dbp) {
                     let _ = db::build_session_index(&conn);
                     let _ = agent_files::build_agent_files_index(&conn);
+                    stats.refresh(&conn);
                 }
                 indexing.store(false, Ordering::Relaxed);
                 // 文件重扫复用启动路径（no_watch=true：监听已在跑的不重复挂）
@@ -528,6 +652,7 @@ fn handle_post(
                     true,
                     &names,
                     &file_indexing,
+                    &stats,
                 );
             });
             send_json(rq, 200, &serde_json::json!({"ok": true}));
@@ -538,20 +663,38 @@ fn handle_post(
 
 fn main() {
     let args = parse_args();
-    let indexing = Arc::new(AtomicBool::new(false));          // 文件索引（MFT/目录）
+    // names.bin 必须跟随 --db，而不是继续写入默认配置盘。
+    if let Some(dir) = args.db.parent() {
+        let _ = std::fs::create_dir_all(dir);
+        std::env::set_var("ANYFIND_DATA_DIR", dir);
+    }
+    let _instance = match DbInstanceGuard::acquire(&args.db) {
+        Ok(guard) => guard,
+        Err(e) => {
+            eprintln!("[anyfindd] {e}");
+            std::process::exit(2);
+        }
+    };
+    let indexing = Arc::new(AtomicBool::new(false)); // 文件索引（MFT/目录）
     let unified_indexing = Arc::new(AtomicBool::new(false)); // 会话/记忆索引
+    let stats = Arc::new(IndexStats::default());
 
     // 冷启动：先装 names.bin（内存文件名索引），后台索引完成后再重建刷新
     let names: SharedNames = Arc::new(RwLock::new(NameIndex::default()));
     let blob = names_blob_path();
     if let Some(idx) = NameIndex::load_blob(&blob) {
-        eprintln!("[anyfindd] names.bin 装载 {} 条: {}", idx.entries.len(), blob.display());
+        eprintln!(
+            "[anyfindd] names.bin 装载 {} 条: {}",
+            idx.entries.len(),
+            blob.display()
+        );
         if let Ok(mut g) = names.write() {
             *g = idx;
         }
     }
 
     if let Some(conn) = open_db(&args.db) {
+        stats.refresh(&conn);
         drop(conn);
         eprintln!("[anyfindd] 索引库: {}", args.db.display());
     } else {
@@ -565,9 +708,20 @@ fn main() {
         content_roots: args.content_roots.clone(),
     });
 
+    // 先提供轻量健康与搜索接口，再启动可能耗时较长的后台索引。
+    let addr = format!("127.0.0.1:{}", args.port);
+    let server = match tiny_http::Server::http(&addr) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[anyfindd] 监听失败 {addr}: {e}");
+            std::process::exit(1);
+        }
+    };
+    eprintln!("[anyfindd] 已启动: http://{addr}");
+
     if !args.no_index {
-        start_unified_index_loop(args.db.clone(), unified_indexing.clone());
-        start_file_index(&args, indexing.clone(), names.clone());
+        start_unified_index_loop(args.db.clone(), unified_indexing.clone(), stats.clone());
+        start_file_index(&args, indexing.clone(), names.clone(), stats.clone());
         // 周期性落盘 names.bin（USN 增量只改内存，重启靠快照+指纹增量收敛）
         let names_bg = names.clone();
         std::thread::spawn(move || loop {
@@ -580,19 +734,10 @@ fn main() {
         });
     }
 
-    let addr = format!("127.0.0.1:{}", args.port);
-    let server = match tiny_http::Server::http(&addr) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[anyfindd] 监听失败 {addr}: {e}");
-            std::process::exit(1);
-        }
-    };
-    eprintln!("[anyfindd] 已启动: http://{addr}");
-
     for rq in server.incoming_requests() {
         let indexing = indexing.clone();
         let unified_indexing = unified_indexing.clone();
+        let stats = stats.clone();
         let db_path = args.db.clone();
         let names = names.clone();
         let pool = pool.clone();
@@ -600,14 +745,76 @@ fn main() {
         std::thread::spawn(move || {
             let url = rq.url().to_string();
             match *rq.method() {
-                tiny_http::Method::Get => {
-                    handle_get(rq, &url, &db_path, &indexing, &unified_indexing, &names, &pool)
-                }
-                tiny_http::Method::Post => {
-                    handle_post(rq, &url, &db_path, &unified_indexing, &idx_cfg, &names)
-                }
+                tiny_http::Method::Get => handle_get(
+                    rq,
+                    &url,
+                    &db_path,
+                    &stats,
+                    &indexing,
+                    &unified_indexing,
+                    &names,
+                    &pool,
+                ),
+                tiny_http::Method::Post => handle_post(
+                    rq,
+                    &url,
+                    &db_path,
+                    &unified_indexing,
+                    &stats,
+                    &idx_cfg,
+                    &names,
+                ),
                 _ => send_json(rq, 405, &serde_json::json!({"error": "method not allowed"})),
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{health, DbInstanceGuard, IndexStats};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    #[test]
+    fn health_reads_cached_counts_without_opening_db() {
+        let stats = IndexStats::default();
+        stats.files.store(5_424_321, Ordering::Relaxed);
+        stats.sessions.store(42, Ordering::Relaxed);
+        stats.skills.store(7, Ordering::Relaxed);
+        stats.memories.store(9, Ordering::Relaxed);
+        let value = health(
+            Path::new("Z:/path-that-must-not-be-opened/index.db"),
+            &stats,
+            &Arc::new(Default::default()),
+            &Arc::new(Default::default()),
+        );
+        assert_eq!(value["index"]["files"], 5_424_321);
+        assert_eq!(value["index"]["sessions"], 42);
+        assert_eq!(value["index"]["skills"], 7);
+        assert_eq!(value["index"]["memories"], 9);
+    }
+
+    #[test]
+    fn db_instance_guard_is_exclusive_and_released_on_drop() {
+        let root = std::env::temp_dir().join(format!(
+            "anyfind-instance-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = root.join("index.db");
+        let first = DbInstanceGuard::acquire(&db).unwrap();
+        assert!(DbInstanceGuard::acquire(&db).is_err());
+        let other = DbInstanceGuard::acquire(&root.join("other.db")).unwrap();
+        drop(other);
+        drop(first);
+        let reacquired = DbInstanceGuard::acquire(&db).unwrap();
+        drop(reacquired);
+        let _ = std::fs::remove_dir_all(PathBuf::from(root));
     }
 }

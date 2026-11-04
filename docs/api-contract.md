@@ -5,13 +5,17 @@
 
 ## 服务
 
-- Rust 内核以本地 HTTP 服务运行：`http://127.0.0.1:8790`（端口可配，`--port`；旧 Python 参考实现使用其他端口）
+- Rust 内核以本地 HTTP 服务运行：默认尝试 `http://127.0.0.1:8790`；桌面端检测冲突后自动改用空闲端口，并把实际地址写入 `%APPDATA%/anyfind/config.json` 的 `kernel_url` 供 dsh 插件自动发现
+- 直接运行内核时可用 `--port` 指定端口；普通桌面用户无需配置地址或端口
 - 无认证，仅监听 loopback
 - 所有响应 JSON，UTF-8
 
 ## GET /api/health
 
-→ `{"ok": true, "version": "0.1.0", "index": {"files": N, "sessions": N, "skills": N, "memories": N}, "indexing": false}`
+→ `{"ok": true, "version": "0.1.0", "db_path": "D:/AnyFindData/index.db", "index": {"files": N, "sessions": N, "skills": N, "memories": N}, "indexing": false}`
+
+- `db_path` 用于确认当前实际索引位置。默认选择非系统盘的 `AnyFindData`，可用 `ANYFIND_DATA_DIR`、配置文件 `data_dir` 或 `--db` 覆盖；`names.bin` 与数据库保持同目录。
+- 健康响应读取内存中的计数快照，不在请求路径重复打开数据库或执行全表统计；计数在启动和索引批次结束后刷新。
 
 ## GET /api/search
 
@@ -50,6 +54,7 @@
   "kind": "session",
   "title": "会话标题或文件名",
   "path": "磁盘绝对路径（文件类）或 null",
+  "is_dir": "file 命中时为 true/false，其他类型为 null",
   "snippet": "命中上下文片段，高亮用 <mark> 包裹",
   "mtime": "2026-10-12T08:30:00",
   "agent": "claude-code | codex | dsh | opencode | pi | cursor | null",
