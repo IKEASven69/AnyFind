@@ -1,4 +1,5 @@
 .tmp/
+.tmp-ui-check/
 core/target/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/schemas/
