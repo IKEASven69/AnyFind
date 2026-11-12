@@ -325,6 +325,155 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 8px 30px rgba(0,0,0,0.45);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* 主体行：左侧目录树 + 右侧主列 */
+  #body-row { flex: 1; display: flex; min-height: 0; position: relative; }
+  #main-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  /* 目录树侧栏 */
+  #sidebar {
+    width: 236px; flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0;
+    background: rgba(14,16,26,0.5); border-right: 0.5px solid rgba(255,255,255,0.1);
+    transition: width 0.2s cubic-bezier(0.25,0.1,0.25,1); overflow: hidden;
+  }
+  #sidebar.collapsed { width: 34px; }
+  #sidebar.collapsed .sb-title, #sidebar.collapsed #sb-root-row, #sidebar.collapsed .sb-body { display: none; }
+  .sb-head { display: flex; align-items: center; gap: 6px; padding: 8px 6px 6px; flex-shrink: 0; }
+  .sb-title { flex: 1; min-width: 0; font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; color: rgba(255,255,255,0.45); text-transform: uppercase; overflow: hidden; }
+  .sb-btn { width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.5); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.12s, color 0.12s; }
+  .sb-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  #sb-root-row { display: flex; gap: 5px; padding: 0 8px 7px; flex-shrink: 0; }
+  #sb-root {
+    flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; font-family: ui-monospace, Consolas, monospace;
+    background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.14); border-radius: 6px;
+    color: #cfd9ff; outline: none;
+  }
+  #sb-root:focus { border-color: rgba(110,150,255,0.55); }
+  #sb-root::placeholder { color: rgba(255,255,255,0.3); }
+  #sb-go { padding: 5px 9px; font-size: 11px; font-family: inherit; border-radius: 6px; border: 0.5px solid rgba(120,150,255,0.45); background: rgba(120,150,255,0.22); color: #cfd9ff; cursor: pointer; flex-shrink: 0; }
+  #sb-go:hover { background: rgba(120,150,255,0.4); }
+  .sb-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #tree { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 10px; }
+  #tree::-webkit-scrollbar { width: 4px; }
+  #tree::-webkit-scrollbar-track { background: transparent; }
+  #tree::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 2px; }
+  .tree-empty { padding: 14px 8px; font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.7; word-break: break-all; }
+  .tree-empty b { color: #8ab4ff; font-weight: 600; }
+  .tn {
+    display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 6px;
+    cursor: default; font-size: 12px; color: rgba(255,255,255,0.82); user-select: none;
+    white-space: nowrap; overflow: hidden;
+  }
+  .tn:hover { background: rgba(255,255,255,0.07); }
+  .tn.sel { background: rgba(120,150,255,0.24); box-shadow: 0 0 0 0.5px rgba(120,150,255,0.4) inset; }
+  .tn .tw { width: 11px; flex-shrink: 0; font-size: 7.5px; color: rgba(255,255,255,0.4); text-align: center; transition: transform 0.12s; display: inline-block; }
+  .tn.dir .tw.open { transform: rotate(90deg); }
+  .tn .t-ico { flex-shrink: 0; font-size: 12px; width: 15px; text-align: center; }
+  .tn .t-name { overflow: hidden; text-overflow: ellipsis; }
+  .tn.file .t-name { color: rgba(255,255,255,0.7); }
+  .tn.err .t-name { color: #ff9b9b; }
+  /* 标签栏（结果区上方） */
+  #tab-bar { display: flex; align-items: center; gap: 5px; padding: 3px 14px 5px; min-height: 30px; position: relative; z-index: 3; flex-shrink: 0; }
+  #tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+  #tabs::-webkit-scrollbar { height: 0; }
+  .tab {
+    display: flex; align-items: center; gap: 6px; max-width: 190px; min-width: 80px;
+    padding: 5px 7px 5px 11px; border-radius: 8px; font-size: 11.5px; cursor: default; user-select: none;
+    color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.04);
+    border: 0.5px solid rgba(255,255,255,0.08); flex-shrink: 0;
+    transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+  }
+  .tab:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); }
+  .tab.active { background: rgba(120,150,255,0.18); border-color: rgba(120,150,255,0.42); color: rgba(255,255,255,0.95); }
+  .tab.dragging { opacity: 0.4; }
+  .tab.over { box-shadow: -2px 0 0 rgba(120,150,255,0.9); }
+  .tab .tb-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .tab .tb-close {
+    width: 15px; height: 15px; border-radius: 4px; border: none; background: transparent;
+    color: rgba(255,255,255,0.4); font-size: 9.5px; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 1;
+  }
+  .tab .tb-close:hover { background: rgba(255,255,255,0.18); color: #fff; }
+  #tab-new {
+    width: 24px; height: 24px; border-radius: 7px; border: 0.5px dashed rgba(255,255,255,0.24);
+    background: transparent; color: rgba(255,255,255,0.5); font-size: 14px; cursor: pointer;
+    flex-shrink: 0; line-height: 1; font-family: inherit;
+  }
+  #tab-new:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .result.msel { background: rgba(120,150,255,0.15); }
+  /* 文件预览条 */
+  #pv-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 16px; border-bottom: 0.5px solid rgba(255,255,255,0.07);
+    font-size: 11px; color: rgba(255,255,255,0.55); flex-shrink: 0;
+  }
+  #pv-bar:empty { display: none; }
+  .pvb {
+    padding: 3px 9px; font-size: 11px; font-family: inherit; border-radius: 6px; cursor: pointer;
+    border: 0.5px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.8); transition: background 0.12s, border-color 0.12s;
+  }
+  .pvb:hover { background: rgba(120,150,255,0.3); border-color: rgba(120,150,255,0.45); }
+  .pvb:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+  .pvb.on { background: rgba(120,150,255,0.32); border-color: rgba(120,150,255,0.5); color: #e6ecff; }
+  .pv-page { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.5); white-space: nowrap; font-size: 10.5px; }
+  .pv-sep { width: 1px; height: 14px; background: rgba(255,255,255,0.14); flex-shrink: 0; }
+  #preview-body pre.file-text {
+    font: 11.5px/1.6 ui-monospace, Consolas, "Courier New", monospace; color: rgba(255,255,255,0.88);
+    white-space: pre; tab-size: 4; margin: 0; word-break: normal; overflow-x: auto;
+  }
+  .pv-fallback { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 12px; text-align: center; }
+  .pv-fallback .pf-ico { font-size: 32px; opacity: 0.75; }
+  .pv-fallback .pf-msg { font-size: 12px; color: rgba(255,255,255,0.55); line-height: 1.75; max-width: 360px; word-break: break-word; }
+  .pv-fallback .pf-btns { display: flex; gap: 8px; margin-top: 2px; flex-wrap: wrap; justify-content: center; }
+  .pdf-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 0 20px; }
+  .pdf-wrap canvas { max-width: 100%; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.4); background: #fff; }
+  /* 右键菜单 */
+  #ctx {
+    position: fixed; z-index: 70; min-width: 184px; max-width: 320px; padding: 5px;
+    border-radius: 10px; background: rgba(24,26,38,0.97); backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px); border: 0.5px solid rgba(255,255,255,0.15);
+    box-shadow: 0 14px 44px rgba(0,0,0,0.55); display: none;
+  }
+  #ctx.open { display: block; }
+  .ctx-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px;
+    font-size: 12px; color: rgba(255,255,255,0.85); cursor: pointer; user-select: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ctx-item:hover { background: rgba(120,150,255,0.28); }
+  .ctx-item.danger { color: #ff9b9b; }
+  .ctx-item.danger:hover { background: rgba(255,90,90,0.25); }
+  .ctx-sep { height: 1px; margin: 4px 8px; background: rgba(255,255,255,0.1); }
+  /* 通用对话框（重命名 / 新建 / 二次确认） */
+  #dlg-back {
+    position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.42);
+    display: none; align-items: center; justify-content: center;
+  }
+  #dlg-back.open { display: flex; }
+  #dlg {
+    width: 360px; max-width: calc(100vw - 48px); border-radius: 14px; padding: 18px;
+    background: rgba(24,26,38,0.97); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    border: 0.5px solid rgba(255,255,255,0.16); box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  #dlg .dlg-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.92); margin-bottom: 6px; }
+  #dlg .dlg-msg { font-size: 11.5px; color: rgba(255,255,255,0.6); line-height: 1.65; margin-bottom: 10px; word-break: break-all; white-space: pre-wrap; }
+  #dlg .dlg-msg:empty { display: none; }
+  #dlg-input {
+    width: 100%; padding: 8px 10px; font-size: 12.5px; font-family: ui-monospace, Consolas, monospace;
+    background: rgba(255,255,255,0.07); border: 0.5px solid rgba(255,255,255,0.18); border-radius: 8px;
+    color: #eef2ff; outline: none; margin-bottom: 12px;
+  }
+  #dlg-input:focus { border-color: rgba(110,150,255,0.6); }
+  .dlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
+  .dlg-btns button {
+    padding: 7px 16px; font-size: 12px; font-family: inherit; border-radius: 8px; cursor: pointer;
+    border: 0.5px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.8); transition: background 0.12s;
+  }
+  .dlg-btns button:hover { background: rgba(255,255,255,0.13); }
+  .dlg-btns button.ok { border-color: rgba(120,150,255,0.5); background: rgba(120,150,255,0.32); color: #e6ecff; }
+  .dlg-btns button.ok:hover { background: rgba(120,150,255,0.5); }
+  .dlg-btns button.danger { border-color: rgba(255,110,110,0.45); background: rgba(255,90,90,0.2); color: #ffb0b0; }
+  .dlg-btns button.danger:hover { background: rgba(255,90,90,0.38); }
   #layout { display: flex; flex-direction: column; height: 100%; position: relative; z-index: 2; }
 </style>
 </head>
@@ -374,23 +523,45 @@
       <div id="suggest"></div>
     </div>
   </div>
-  <div id="kinds-wrap"></div>
-  <div id="status"></div>
-  <div id="results-zone">
-    <div id="results-wrap"><div class="empty">输入关键词开始搜索</div></div>
-    <div id="loading">
-      <div class="ld-spin"></div>
-      <div class="ld-text">搜索中…</div>
-      <div class="ld-skel">
-        <div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div>
-        <div class="sk-row"></div><div class="sk-row"></div>
+  <div id="body-row">
+    <aside id="sidebar">
+      <div class="sb-head">
+        <button class="sb-btn" id="sb-collapse" title="折叠/展开目录树">&#x2039;</button>
+        <span class="sb-title">目录</span>
+        <button class="sb-btn" id="sb-refresh" title="刷新根目录">&#x21BB;</button>
       </div>
-    </div>
-    <div id="onboard">
-      <div class="ob-title">正在准备搜索</div>
-      <div class="ob-desc">首次使用需要建立索引，完成后即可搜索。<br>若长时间未就绪，请点击重试。</div>
-      <div class="ob-btns">
-        <button class="set-btn" id="ob-retry">重试</button>
+      <div id="sb-root-row">
+        <input id="sb-root" placeholder="根路径 如 D:/coding" spellcheck="false" autocomplete="off">
+        <button id="sb-go">转到</button>
+      </div>
+      <div class="sb-body">
+        <div id="tree"></div>
+      </div>
+    </aside>
+    <div id="main-col">
+      <div id="kinds-wrap"></div>
+      <div id="status"></div>
+      <div id="tab-bar">
+        <div id="tabs"></div>
+        <button id="tab-new" title="新建标签">+</button>
+      </div>
+      <div id="results-zone">
+        <div id="results-wrap"><div class="empty">输入关键词开始搜索</div></div>
+        <div id="loading">
+          <div class="ld-spin"></div>
+          <div class="ld-text">搜索中…</div>
+          <div class="ld-skel">
+            <div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div>
+            <div class="sk-row"></div><div class="sk-row"></div>
+          </div>
+        </div>
+        <div id="onboard">
+          <div class="ob-title">正在准备搜索</div>
+          <div class="ob-desc">首次使用需要建立索引，完成后即可搜索。<br>若长时间未就绪，请点击重试。</div>
+          <div class="ob-btns">
+            <button class="set-btn" id="ob-retry">重试</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -398,9 +569,11 @@
 <!-- 会话预览侧栏 -->
 <div id="preview">
   <div id="preview-head">
+    <button class="pv-close" id="pv-back" title="后退" style="display:none">&#x2190;</button>
     <span class="pv-title" id="pv-title">会话预览</span>
     <button class="pv-close" onclick="closePreview()">&#x2715;</button>
   </div>
+  <div id="pv-bar"></div>
   <div id="preview-meta"></div>
   <div id="preview-body"></div>
   <div id="preview-foot">
@@ -451,6 +624,10 @@
   <div class="set-note">热键保存后立即生效；关闭按钮仅隐藏窗口，热键可随时唤起。</div>
 </div>
 <div id="toast"></div>
+<!-- 右键菜单 -->
+<div id="ctx"></div>
+<!-- 通用对话框（重命名 / 新建 / 二次确认） -->
+<div id="dlg-back"><div id="dlg"></div></div>
 <script>
 "use strict";
 /* ============ 壳桥接层（Tauri / 浏览器双模式） ============ */
@@ -464,6 +641,8 @@ const FF = {
   collapsed: {},
   flat: [],               // 当前渲染的命中 [{kind, hit}]
   sel: -1,
+  selAnchor: null,        // Shift 区间选择锚点
+  multiSel: new Set(),    // 结果行多选（idx 集合）
   session: null,          // 预览中的会话 hit
   hotkey: "ctrl+shift+f",
   cfg: {},                // 持久化配置（Tauri: %APPDATA%/anyfind/config.json）
@@ -472,6 +651,8 @@ const FF = {
   resultCache: new Map(), // q → data（回退历史查询瞬时渲染）
   suggestCache: { projects: [], dirs: [] },
   indexCounts: null,
+  tabs: [],               // 多标签状态（切 tab 纯客户端零请求）
+  activeTabId: null,
 };
 
 const GROUPS = [
@@ -503,7 +684,7 @@ async function loadConfig() {
   } else {
     try { cfg = JSON.parse(localStorage.getItem("ff.cfg") || "{}"); } catch (e) {}
   }
-  FF.cfg = Object.assign({ hotkey: "ctrl+shift+f", kernel_url: DEFAULT_KERNEL, autostart: false, mock: false, data_dir: "" }, cfg || {});
+  FF.cfg = Object.assign({ hotkey: "ctrl+shift+f", kernel_url: DEFAULT_KERNEL, autostart: false, mock: false, data_dir: "", tree_root: "" }, cfg || {});
   // URL 覆盖（测试用）：?kernel=http://127.0.0.1:8766
   const urlKernel = new URLSearchParams(location.search).get("kernel");
   if (urlKernel) FF.cfg.kernel_url = urlKernel;
@@ -571,6 +752,24 @@ async function apiSearchPath(q, kinds) {
 async function apiSession(id) { return kernelGet("/api/session/" + encodeURIComponent(id)); }
 async function apiResume(hit, spawn) {
   return kernelPost("/api/resume", { agent: hit.agent, session_id: hit.session_id, cwd: hit.cwd, spawn: !!spawn });
+}
+/* ============ 文件端点（内核契约 v0.2：list/read/stat/op） ============ */
+async function apiFileList(path, max) {
+  const params = new URLSearchParams({ path });
+  if (max != null) params.set("max", String(max));
+  return kernelGet("/api/file/list?" + params);
+}
+async function apiFileRead(path, offset, lines) {
+  const params = new URLSearchParams({ path });
+  if (offset != null) params.set("offset", String(offset));
+  if (lines != null) params.set("lines", String(lines));
+  return kernelGet("/api/file/read?" + params);
+}
+async function apiFileStat(path) {
+  return kernelGet("/api/file/stat?" + new URLSearchParams({ path }));
+}
+async function apiFileOp(body) {
+  return kernelPost("/api/file/op", body);
 }
 
 /* ============ 工具 ============ */
@@ -889,6 +1088,35 @@ function mockRoute(method, path, body) {
       resolve({ ok: true, command: `${body && body.agent === "claude-code" ? "claude" : (body && body.agent) || "agent"} --resume ${body && body.session_id}  (mock 未真正启动)` });
     } else if (path === "/api/health") {
       resolve({ ok: true, version: "mock", index: { files: 128430, sessions: 312, skills: 46, memories: 58 }, indexing: false });
+    } else if (path.startsWith("/api/file/list")) {
+      const u = new URL("http://x" + path);
+      const p = u.searchParams.get("path") || "";
+      resolve({
+        path: p,
+        entries: [
+          { name: "sub", is_dir: true, size: 0, mtime: "2026-11-01T10:00:00" },
+          { name: "note.txt", is_dir: false, size: 1234, mtime: "2026-11-02T09:30:00" },
+          { name: "示例.md", is_dir: false, size: 456, mtime: "2026-11-03T08:15:00" },
+        ],
+        truncated: false,
+      });
+    } else if (path.startsWith("/api/file/read")) {
+      const u = new URL("http://x" + path);
+      const off = Math.max(0, parseInt(u.searchParams.get("offset") || "0", 10) || 0);
+      const ln = Math.min(500, Math.max(1, parseInt(u.searchParams.get("lines") || "30", 10) || 30));
+      const total = 120;
+      const rows = [];
+      for (let i = off; i < Math.min(total, off + ln); i++) rows.push(`line ${i + 1}: mock 内容（${u.searchParams.get("path") || ""}）`);
+      resolve({
+        content: rows.join("\n"), totalLines: total, offset: off,
+        lines: Math.max(0, Math.min(ln, total - off)), truncated: off + ln >= total, binary: false,
+      });
+    } else if (path.startsWith("/api/file/stat")) {
+      const u = new URL("http://x" + path);
+      const p = u.searchParams.get("path") || "";
+      resolve({ name: p.split(/[\\/]/).pop() || p, is_dir: false, size: 1234, mtime: "2026-11-02T09:30:00" });
+    } else if (path === "/api/file/op") {
+      resolve({ ok: true, results: ((body && body.paths) || []).map(p => ({ path: p, ok: true })) });
     } else {
       resolve({});
     }
@@ -919,6 +1147,12 @@ function hideLoading() { $("loading").classList.remove("show"); }
 async function doSearch() {
   const q = $("q").value.trim();
   const seq = ++searchSeq;
+  // 标签标题跟随当前查询（纯客户端，不发请求）
+  const tb = activeTab();
+  if (tb) {
+    const nt = q ? (q.length > 16 ? q.slice(0, 16) + "…" : q) : "新标签";
+    if (tb.title !== nt) { tb.title = nt; renderTabs(); }
+  }
   if (!q) {
     FF.lastData = null; FF.pendingKinds = null;
     $("results-wrap").innerHTML = '<div class="empty">输入关键词开始搜索</div>';
@@ -981,6 +1215,8 @@ function renderFiltered() {
   const box = $("results-wrap");
   FF.flat = [];
   FF.sel = -1;
+  FF.multiSel = new Set();
+  FF.selAnchor = null;
   if (!data) { box.innerHTML = '<div class="empty">输入关键词开始搜索</div>'; return; }
   const groups = data.groups || {};
   const wanted = FF.kinds ? [FF.kinds] : KIND_KEYS;
@@ -1068,6 +1304,7 @@ function actsHTML(h, kind) {
     b.push(`<button data-act="preview">预览</button>`);
   } else {
     b.push(`<button class="primary" data-act="open">打开</button>`);
+    if (h.path) b.push(`<button data-act="preview">预览</button>`);
     b.push(`<button data-act="folder">所在文件夹</button>`);
   }
   if (h.path) b.push(`<button data-act="copy">复制路径</button>`);
@@ -1088,9 +1325,23 @@ $("results-wrap").addEventListener("click", e => {
   const idx = +row.dataset.idx;
   const entry = FF.flat[idx];
   if (!entry) return;
-  select(idx);
   const actBtn = e.target.closest("[data-act]");
-  if (actBtn) { e.stopPropagation(); doAction(actBtn.dataset.act, entry); }
+  if (actBtn) { e.stopPropagation(); select(idx); doAction(actBtn.dataset.act, entry); return; }
+  // 选择：单击唯一选中；Ctrl/⌘ 增删；Shift 区间（供右键批量操作）
+  if (e.ctrlKey || e.metaKey) {
+    if (FF.multiSel.has(idx)) FF.multiSel.delete(idx); else FF.multiSel.add(idx);
+    FF.selAnchor = idx;
+  } else if (e.shiftKey && FF.selAnchor != null) {
+    const a = FF.selAnchor, b = idx;
+    FF.multiSel = new Set();
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) FF.multiSel.add(i);
+  } else {
+    FF.multiSel = new Set([idx]);
+    FF.selAnchor = idx;
+  }
+  if (FF.multiSel.size === OP_MAX + 1) toast(`一次最多操作 ${OP_MAX} 项，超出部分不会被处理`, 3000);
+  select(idx);
+  applyMultiSelClasses();
 });
 $("results-wrap").addEventListener("dblclick", e => {
   const row = e.target.closest(".result");
@@ -1114,43 +1365,57 @@ function doAction(act, entry) {
       else toast("仅桌面版支持打开文件夹");
       break;
     case "copy": copyText(h.path || h.cwd); break;
-    case "preview": openPreview(h); break;
+    case "preview":
+      if (entry.kind === "session") openPreview(h);
+      else openFilePreview(h.path, String(h.title || "").replace(/<[^>]+>/g, ""));
+      break;
     case "resume": resumeSession(h); break;
   }
 }
 
-/* ============ 会话预览 / 跳回 ============ */
+/* ============ 会话预览 / 跳回（预览状态挂在活动标签上，切 tab 零请求） ============ */
 async function openPreview(h) {
   if (!h.session_id) { toast("该会话缺少 session_id"); return; }
-  FF.session = h;
-  $("preview").classList.add("open");
-  $("pv-title").textContent = (h.title || "会话预览").replace(/<[^>]+>/g, "");
   const ag = h.agent && AGENTS[h.agent];
-  $("preview-meta").innerHTML =
-    (ag ? `<span class="agent-badge"><span class="a-dot" style="background:${ag.c}"></span>${ag.n}</span>` : "") +
-    (h.project ? `<span class="proj-tag">&#x25B8; ${esc(h.project)}</span>` : "") +
-    (h.cwd ? `<span style="font-family:ui-monospace,Consolas,monospace">${esc(h.cwd)}</span>` : "");
-  $("preview-body").innerHTML = '<div class="empty">加载中…</div>';
+  const st = {
+    kind: "session", hit: h,
+    title: (h.title || "会话预览").replace(/<[^>]+>/g, ""),
+    metaHtml:
+      (ag ? `<span class="agent-badge"><span class="a-dot" style="background:${ag.c}"></span>${ag.n}</span>` : "") +
+      (h.project ? `<span class="proj-tag">&#x25B8; ${esc(h.project)}</span>` : "") +
+      (h.cwd ? `<span style="font-family:ui-monospace,Consolas,monospace">${esc(h.cwd)}</span>` : ""),
+    bodyHtml: null, loading: true, error: null,
+  };
+  pushPreview(st);
+  FF.session = h;
+  renderPreviewState(st);
   try {
     const s = await apiSession(h.session_id);
-    if (FF.session !== h) return;
     const msgs = s.messages || [];
     const CAP = 300; // 长会话截断渲染，避免一次插入数千节点卡死 UI
     const shown = msgs.slice(0, CAP);
     const more = msgs.length > CAP
       ? `<div class="empty">仅显示前 ${CAP} 条（共 ${msgs.length} 条）</div>` : "";
-    $("preview-body").innerHTML = shown.length ? shown.map(m =>
+    st.bodyHtml = shown.length ? shown.map(m =>
       `<div class="msg ${m.role === "user" ? "user" : "assistant"}">
         <div class="m-role">${m.role === "user" ? "User" : "Assistant"}<span class="m-ts">${fmtTime(m.ts)}</span></div>
         <div>${hi(m.text)}</div>
       </div>`).join("") + more
       : '<div class="empty">无消息内容</div>';
-    $("preview-body").scrollTop = 0;
+    st.loading = false;
   } catch (e) {
-    $("preview-body").innerHTML = `<div class="empty">加载失败：${esc(e.message || e)}</div>`;
+    st.loading = false;
+    st.error = e.message || String(e);
   }
+  renderIfActive(st);
 }
-function closePreview() { $("preview").classList.remove("open"); FF.session = null; $("q").focus(); }
+function closePreview() {
+  const t = activeTab();
+  if (t) { t.preview = null; t.history = []; t.histIdx = -1; }
+  FF.session = null;
+  $("preview").classList.remove("open");
+  $("q").focus();
+}
 
 async function resumeSession(h) {
   if (!h.session_id) { toast("该会话缺少 session_id"); return; }
@@ -1297,6 +1562,7 @@ $("q").addEventListener("keydown", e => {
 });
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  if (hideCtx()) return;
   if (SG.open) { closeSuggest(); return; }
   if ($("preview").classList.contains("open")) { closePreview(); return; }
   if (closePopovers()) return;
@@ -1440,6 +1706,796 @@ async function loadHealth() {
 }
 $("ob-retry").addEventListener("click", loadHealth);
 
+/* ============ 多标签 / 目录树 / 文件预览 / 写操作（内核文件契约 v0.2） ============ */
+const OP_MAX = 128;
+const TEXT_PAGE_SIZES = [30, 60, 120];
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp"]);
+let treeFlatList = [];
+let dragTabId = null;
+let ctxItems = [];
+let dlgResolve = null;
+
+/* ---- 小工具 ---- */
+function basename(p) { return String(p || "").split(/[\\/]/).pop() || ""; }
+function parentOf(p) {
+  const s = String(p || "");
+  const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+  if (i < 0) return "";
+  let par = s.slice(0, i);
+  if (/^[A-Za-z]:$/.test(par)) par += "/";
+  return par;
+}
+function extOf(p) { const b = basename(p); const i = b.lastIndexOf("."); return i > 0 ? b.slice(i + 1).toLowerCase() : ""; }
+function joinPath(dir, name) { return String(dir || "").replace(/[\\/]+$/, "") + "/" + name; }
+function fmtSize(n) {
+  if (n == null || isNaN(Number(n))) return "";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = Number(n);
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? Math.round(v) : (v >= 10 ? v.toFixed(0) : v.toFixed(1))) + " " + u[i];
+}
+function openWithSystem(path) {
+  if (!path) { toast("该条目无磁盘路径"); return; }
+  if (invoke) invoke("open_path", { path }).catch(e => toast(String(e)));
+  else toast("仅桌面版支持打开文件");
+}
+function revealPath(path) {
+  if (!path) return;
+  if (invoke) invoke("reveal_in_folder", { path }).catch(e => toast(String(e)));
+  else toast("仅桌面版支持打开文件夹");
+}
+
+/* ---- 通用对话框（重命名 / 新建 / 二次确认） ---- */
+function openDlg(opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    dlgResolve = resolve;
+    const d = $("dlg");
+    const withInput = opts.input !== false;
+    d.innerHTML =
+      `<div class="dlg-title">${esc(opts.title || "输入")}</div>` +
+      `<div class="dlg-msg">${esc(opts.message || "")}</div>` +
+      (withInput ? `<input id="dlg-input" spellcheck="false" autocomplete="off" placeholder="${esc(opts.placeholder || "")}">` : "") +
+      `<div class="dlg-btns"><button data-dlg="cancel">取消</button>` +
+      `<button class="${opts.danger ? "danger" : "ok"}" data-dlg="ok">${esc(opts.okText || "确定")}</button></div>`;
+    $("dlg-back").classList.add("open");
+    const inp = d.querySelector("#dlg-input");
+    if (inp) {
+      inp.value = opts.value != null ? String(opts.value) : "";
+      inp.focus();
+      const dot = inp.value.lastIndexOf(".");
+      try { inp.setSelectionRange(0, dot > 0 ? dot : inp.value.length); } catch (e) {}
+    } else {
+      d.querySelector('[data-dlg="ok"]').focus();
+    }
+  });
+}
+function closeDlg(val) {
+  if (!$("dlg-back").classList.contains("open")) return;
+  $("dlg-back").classList.remove("open");
+  const r = dlgResolve;
+  dlgResolve = null;
+  if (r) r(val);
+}
+$("dlg-back").addEventListener("click", e => {
+  const btn = e.target.closest("[data-dlg]");
+  if (btn) {
+    if (btn.dataset.dlg === "ok") {
+      const inp = $("dlg").querySelector("#dlg-input");
+      closeDlg(inp ? inp.value : true);
+    } else closeDlg(null);
+    return;
+  }
+  if (e.target === $("dlg-back")) closeDlg(null);
+});
+$("dlg-back").addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeDlg(null); }
+  else if (e.key === "Enter") {
+    e.preventDefault(); e.stopPropagation();
+    const inp = $("dlg").querySelector("#dlg-input");
+    closeDlg(inp ? inp.value : true);
+  }
+});
+
+/* ---- 右键菜单 ---- */
+function showCtx(x, y, items) {
+  const box = $("ctx");
+  ctxItems = items || [];
+  box.innerHTML = ctxItems.map((it, i) =>
+    it === "-" ? '<div class="ctx-sep"></div>'
+      : `<div class="ctx-item${it.danger ? " danger" : ""}" data-i="${i}">${esc(it.label)}</div>`).join("");
+  box.classList.add("open");
+  const r = box.getBoundingClientRect();
+  box.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 6)) + "px";
+  box.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 6)) + "px";
+}
+function hideCtx() {
+  const box = $("ctx");
+  if (!box.classList.contains("open")) return false;
+  box.classList.remove("open");
+  ctxItems = [];
+  return true;
+}
+$("ctx").addEventListener("click", e => {
+  const el = e.target.closest(".ctx-item");
+  if (!el) return;
+  const item = ctxItems[+el.dataset.i];
+  hideCtx();
+  if (item && item.fn) item.fn();
+});
+document.addEventListener("click", e => { if (!e.target.closest("#ctx")) hideCtx(); });
+window.addEventListener("blur", () => hideCtx());
+
+/* ---- 多标签（切 tab 纯客户端零请求，遵守 SEG 纪律） ---- */
+let tabSeq = 1;
+function createTabState(over) {
+  return Object.assign({
+    id: tabSeq++, title: "新标签", q: "", kinds: "", collapsed: {},
+    lastData: null, pendingKinds: null, sel: -1, selAnchor: null, multiSel: [],
+    root: "", expanded: new Set(), children: new Map(), treeSel: new Set(), treeAnchor: null,
+    preview: null, history: [], histIdx: -1,
+  }, over || {});
+}
+function activeTab() { return FF.tabs.find(t => t.id === FF.activeTabId) || null; }
+function snapshotActive() {
+  const t = activeTab();
+  if (!t) return;
+  t.q = $("q").value;
+  t.kinds = FF.kinds;
+  t.collapsed = FF.collapsed;
+  t.lastData = FF.lastData;
+  t.pendingKinds = FF.pendingKinds;
+  t.sel = FF.sel;
+  t.selAnchor = FF.selAnchor;
+  t.multiSel = Array.from(FF.multiSel);
+}
+function loadTab(t) {
+  searchSeq++; clearTimeout(searchTimer); // 切 tab 使在途搜索失效：换页本身零请求
+  FF.kinds = t.kinds || "";
+  FF.collapsed = t.collapsed || {};
+  FF.lastData = t.lastData;
+  FF.pendingKinds = t.pendingKinds;
+  FF.sel = -1;
+  FF.selAnchor = t.selAnchor;
+  $("q").value = t.q || "";
+  renderHighlight();
+  activateSeg(FF.kinds); // 只重渲染缓存数据，不发请求
+  if (!FF.lastData) { setBadges("index"); renderStatus(null); }
+  FF.multiSel = new Set(t.multiSel || []);
+  applyMultiSelClasses();
+  if (t.sel >= 0 && t.sel < FF.flat.length) select(t.sel);
+  $("sb-root").value = t.root || "";
+  if (t.root) t.expanded.add(t.root);
+  renderTree();
+  const st = t.preview;
+  FF.session = st && st.kind === "session" ? st.hit : null;
+  if (st) renderPreviewState(st);
+  else $("preview").classList.remove("open");
+}
+function activateTab(id) {
+  if (id === FF.activeTabId) return;
+  const t = FF.tabs.find(x => x.id === id);
+  if (!t) return;
+  snapshotActive();
+  FF.activeTabId = id;
+  loadTab(t);
+  renderTabs();
+}
+function newTab() {
+  const prev = activeTab();
+  const t = createTabState({ root: (FF.cfg && FF.cfg.tree_root) || (prev && prev.root) || "" });
+  FF.tabs.push(t);
+  activateTab(t.id);
+}
+function closeTab(id) {
+  const i = FF.tabs.findIndex(t => t.id === id);
+  if (i < 0) return;
+  if (FF.tabs.length === 1) {
+    snapshotActive();
+    const fresh = createTabState({ root: (FF.cfg && FF.cfg.tree_root) || FF.tabs[0].root || "" });
+    FF.tabs = [fresh];
+    FF.activeTabId = fresh.id;
+    loadTab(fresh);
+    renderTabs();
+    return;
+  }
+  const wasActive = FF.activeTabId === id;
+  if (wasActive) snapshotActive();
+  FF.tabs.splice(i, 1);
+  if (wasActive) {
+    const next = FF.tabs[Math.min(i, FF.tabs.length - 1)];
+    FF.activeTabId = next.id;
+    loadTab(next);
+  }
+  renderTabs();
+}
+function renderTabs() {
+  const box = $("tabs");
+  if (!box) return;
+  box.innerHTML = "";
+  FF.tabs.forEach(t => {
+    const el = document.createElement("div");
+    el.className = "tab" + (t.id === FF.activeTabId ? " active" : "");
+    el.dataset.id = t.id;
+    el.draggable = true;
+    el.title = t.q || t.title || "新标签";
+    el.innerHTML = `<span class="tb-title">${esc(t.title || "新标签")}</span><button class="tb-close" title="关闭标签">&#x2715;</button>`;
+    el.addEventListener("click", e => {
+      if (e.target.closest(".tb-close")) { e.stopPropagation(); closeTab(t.id); return; }
+      activateTab(t.id);
+    });
+    el.addEventListener("dragstart", e => {
+      dragTabId = t.id;
+      el.classList.add("dragging");
+      try { e.dataTransfer.setData("text/plain", String(t.id)); e.dataTransfer.effectAllowed = "move"; } catch (err) {}
+    });
+    el.addEventListener("dragend", () => {
+      dragTabId = null;
+      el.classList.remove("dragging");
+      box.querySelectorAll(".tab").forEach(x => x.classList.remove("over"));
+    });
+    el.addEventListener("dragover", e => {
+      if (dragTabId == null || dragTabId === t.id) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = "move"; } catch (err) {}
+      el.classList.add("over");
+    });
+    el.addEventListener("dragleave", () => el.classList.remove("over"));
+    el.addEventListener("drop", e => {
+      e.preventDefault();
+      el.classList.remove("over");
+      if (dragTabId == null || dragTabId === t.id) return;
+      const from = FF.tabs.findIndex(x => x.id === dragTabId);
+      if (from < 0) return;
+      const moved = FF.tabs.splice(from, 1)[0];
+      let to = FF.tabs.findIndex(x => x.id === t.id);
+      if (to < 0) { FF.tabs.splice(from, 0, moved); return; }
+      const r = el.getBoundingClientRect();
+      if (e.clientX > r.left + r.width / 2) to += 1;
+      FF.tabs.splice(to, 0, moved);
+      dragTabId = null;
+      renderTabs();
+    });
+    box.appendChild(el);
+  });
+}
+function applyMultiSelClasses() {
+  document.querySelectorAll(".result").forEach(r => {
+    r.classList.toggle("msel", FF.multiSel.has(+r.dataset.idx));
+  });
+}
+
+/* ---- 目录树（懒加载；噪声目录由契约 noise=0 默认隐藏） ---- */
+function setTreeRoot(root, opts) {
+  const t = activeTab();
+  if (!t) return;
+  t.root = String(root || "").trim().replace(/\\/g, "/");
+  t.expanded = new Set();
+  t.children = new Map();
+  t.treeSel = new Set();
+  t.treeAnchor = null;
+  if (t.root) t.expanded.add(t.root);
+  $("sb-root").value = t.root;
+  if (!(opts && opts.silent)) { FF.cfg.tree_root = t.root; saveConfig(); }
+  renderTree();
+}
+async function fetchChildren(t, dir) {
+  if (t.children.has(dir)) return;
+  const slot = { loading: true };
+  t.children.set(dir, slot);
+  try {
+    const r = await apiFileList(dir);
+    if (t.children.get(dir) === slot) {
+      t.children.set(dir, { entries: (r && r.entries) || [], truncated: !!(r && r.truncated) });
+    }
+  } catch (e) {
+    if (t.children.get(dir) === slot) t.children.set(dir, { error: e.message || String(e) });
+  }
+  if (activeTab() === t) renderTree();
+}
+function renderTree() {
+  const t = activeTab();
+  const box = $("tree");
+  if (!t || !box) return;
+  if (!t.root) {
+    box.innerHTML = '<div class="tree-empty">输入根目录路径后按回车<br>例如 <b>D:/coding</b></div>';
+    treeFlatList = [];
+    return;
+  }
+  let html = "";
+  treeFlatList = [];
+  const emitLoading = depth => {
+    html += `<div class="tn" style="padding-left:${6 + depth * 14}px"><span class="tw"></span><span class="t-ico">&#x23F3;</span><span class="t-name">加载中…</span></div>`;
+  };
+  const walk = (dir, depth) => {
+    const slot = t.children.get(dir);
+    if (!slot) return;
+    if (slot.loading) { emitLoading(depth); return; }
+    if (slot.error) {
+      html += `<div class="tn err" style="padding-left:${6 + depth * 14}px" title="${esc(slot.error)}"><span class="tw"></span><span class="t-ico">&#x26A0;&#xFE0F;</span><span class="t-name">加载失败</span></div>`;
+      return;
+    }
+    if (!slot.entries.length) {
+      if (depth > 0) html += `<div class="tree-empty" style="padding:2px 6px 2px ${8 + depth * 14}px">（空目录）</div>`;
+      return;
+    }
+    slot.entries.forEach(en => {
+      const p = joinPath(dir, en.name);
+      const isDir = !!en.is_dir;
+      const open = t.expanded.has(p);
+      treeFlatList.push({ path: p, is_dir: isDir });
+      const selCls = t.treeSel && t.treeSel.has(p) ? " sel" : "";
+      const shape = fileTypeFor({ title: en.name, path: p, is_dir: en.is_dir }).shape;
+      const emoji = isDir
+        ? (open ? "\u{1F4C2}" : "\u{1F4C1}")
+        : ({ file: "\u{1F4C4}", code: "\u{1F4DC}", app: "\u{2699}\u{FE0F}", image: "\u{1F5BC}\u{FE0F}",
+            archive: "\u{1F4E6}", data: "\u{1F5C2}\u{FE0F}", doc: "\u{1F4C4}", folder: "\u{1F4C1}" })[shape] || "\u{1F4C4}";
+      html += `<div class="tn ${isDir ? "dir" : "file"}${selCls}" data-path="${esc(p)}" data-dir="${isDir ? 1 : 0}" style="padding-left:${6 + depth * 14}px" title="${esc(p)}">` +
+        `<span class="tw${open ? " open" : ""}">${isDir ? "&#x25B6;" : ""}</span>` +
+        `<span class="t-ico">${emoji}</span><span class="t-name">${esc(en.name)}</span></div>`;
+      if (isDir && open) {
+        const cs = t.children.get(p);
+        if (!cs) { fetchChildren(t, p); emitLoading(depth + 1); }
+        else walk(p, depth + 1);
+      }
+    });
+  };
+  const rootSlot = t.children.get(t.root);
+  if (!rootSlot) { fetchChildren(t, t.root); emitLoading(0); }
+  else walk(t.root, 0);
+  if (!html && rootSlot && !rootSlot.loading && !rootSlot.error) html = '<div class="tree-empty">（空目录）</div>';
+  box.innerHTML = html;
+}
+function toggleExpand(t, path) {
+  if (t.expanded.has(path)) { t.expanded.delete(path); renderTree(); }
+  else {
+    t.expanded.add(path);
+    if (!t.children.has(path)) fetchChildren(t, path);
+    renderTree();
+  }
+}
+$("tree").addEventListener("click", e => {
+  const t = activeTab();
+  if (!t) return;
+  const tn = e.target.closest(".tn");
+  if (!tn || !tn.dataset.path) return;
+  const path = tn.dataset.path;
+  const isDir = tn.dataset.dir === "1";
+  if (e.ctrlKey || e.metaKey) {
+    if (t.treeSel.has(path)) t.treeSel.delete(path); else t.treeSel.add(path);
+    t.treeAnchor = path;
+    renderTree();
+    return;
+  }
+  if (e.shiftKey && t.treeAnchor) {
+    const paths = treeFlatList.map(x => x.path);
+    const a = paths.indexOf(t.treeAnchor), b = paths.indexOf(path);
+    if (a >= 0 && b >= 0) {
+      t.treeSel = new Set(paths.slice(Math.min(a, b), Math.max(a, b) + 1));
+      renderTree();
+      return;
+    }
+  }
+  t.treeSel = new Set([path]);
+  t.treeAnchor = path;
+  if (isDir) toggleExpand(t, path);
+  else { renderTree(); openFilePreview(path, basename(path)); }
+});
+$("tree").addEventListener("contextmenu", e => {
+  const t = activeTab();
+  if (!t) return;
+  const tn = e.target.closest(".tn");
+  if (!tn || !tn.dataset.path) return;
+  e.preventDefault();
+  const path = tn.dataset.path;
+  const isDir = tn.dataset.dir === "1";
+  if (!t.treeSel.has(path)) { t.treeSel = new Set([path]); t.treeAnchor = path; renderTree(); }
+  const paths = Array.from(t.treeSel);
+  showCtx(e.clientX, e.clientY, ctxItemsForPaths(paths, isDir && paths.length === 1));
+});
+$("results-wrap").addEventListener("contextmenu", e => {
+  const row = e.target.closest(".result");
+  if (!row) return;
+  const idx = +row.dataset.idx;
+  const entry = FF.flat[idx];
+  if (!entry || !entry.hit || !entry.hit.path) return;
+  e.preventDefault();
+  // 右键命中行若已处于多选集合内，则作用于整个集合；否则只作用于该行
+  const inMulti = FF.multiSel.has(idx) && FF.multiSel.size > 1;
+  if (!inMulti) {
+    select(idx);
+    FF.multiSel = new Set([idx]);
+    FF.selAnchor = idx;
+    applyMultiSelClasses();
+  }
+  const idxs = (inMulti ? Array.from(FF.multiSel) : [idx]).sort((a, b) => a - b);
+  const entries = idxs.map(i => FF.flat[i]).filter(x => x && x.hit && x.hit.path);
+  if (!entries.length) return;
+  const paths = entries.map(x => x.hit.path);
+  const isDirTarget = paths.length === 1 && entries[0].hit.is_dir === true;
+  showCtx(e.clientX, e.clientY, ctxItemsForPaths(paths, isDirTarget));
+});
+
+/* ---- 文件预览（文本分页 / 图片降级 / PDF 经本地 pdfjs） ---- */
+function pushPreview(st) {
+  const t = activeTab();
+  if (!t) return;
+  const keep = (t.histIdx == null ? -1 : t.histIdx) + 1;
+  t.history = (t.history || []).slice(0, keep);
+  t.history.push(st);
+  t.histIdx = t.history.length - 1;
+  t.preview = st;
+}
+function backPreview() {
+  const t = activeTab();
+  if (!t || !(t.histIdx > 0)) return;
+  t.histIdx--;
+  const st = t.history[t.histIdx];
+  t.preview = st;
+  FF.session = st.kind === "session" ? st.hit : null;
+  renderPreviewState(st);
+}
+function renderIfActive(st) {
+  const t = activeTab();
+  if (t && t.preview === st) renderPreviewState(st);
+}
+function fallbackHTML(icon, msg, path) {
+  return `<div class="pv-fallback">
+    <div class="pf-ico">${icon}</div>
+    <div class="pf-msg">${esc(msg)}</div>
+    ${path ? `<div class="pf-btns">
+      <button class="pvb" data-pvb="open">用系统打开</button>
+      <button class="pvb" data-pvb="folder">所在文件夹</button>
+      <button class="pvb" data-pvb="copy">复制路径</button>
+    </div>` : ""}
+  </div>`;
+}
+function pageLabel(st) {
+  if (!st.data) return "…";
+  const total = st.data.totalLines || 0;
+  if (!total) return "空文件";
+  const start = st.offset + 1;
+  const end = Math.min(total, st.offset + (st.data.lines || st.lines || 0));
+  return `第 ${start}-${end} 行 / 共 ${total} 行`;
+}
+function renderPreviewState(st) {
+  const pv = $("preview");
+  if (!st) { pv.classList.remove("open"); return; }
+  pv.classList.add("open");
+  const t = activeTab();
+  $("pv-back").style.display = t && t.histIdx > 0 ? "" : "none";
+  $("preview-foot").style.display = st.kind === "session" ? "" : "none";
+  const bar = [];
+  if (st.kind === "session") {
+    $("pv-title").textContent = st.title || "会话预览";
+    $("preview-meta").innerHTML = st.metaHtml || "";
+    if (st.loading) $("preview-body").innerHTML = '<div class="empty">加载中…</div>';
+    else if (st.error) $("preview-body").innerHTML = `<div class="empty">加载失败：${esc(st.error)}</div>`;
+    else $("preview-body").innerHTML = st.bodyHtml || '<div class="empty">无消息内容</div>';
+    $("pv-bar").innerHTML = "";
+    return;
+  }
+  $("pv-title").textContent = st.title || basename(st.path);
+  $("preview-meta").innerHTML =
+    `<span style="font-family:ui-monospace,Consolas,monospace;word-break:break-all">${esc(st.path || "")}</span>` +
+    (st.stat && st.stat.size != null ? `<span>${fmtSize(st.stat.size)}</span>` : "") +
+    (st.stat && st.stat.mtime ? `<span>${fmtTime(st.stat.mtime)}</span>` : "");
+  if (st.kind === "text") {
+    bar.push(`<button class="pvb" data-pvb="prev"${st.offset <= 0 ? " disabled" : ""}>上一页</button>`);
+    bar.push(`<span class="pv-page">${esc(pageLabel(st))}</span>`);
+    const atEnd = st.data && st.data.totalLines != null && st.offset + (st.data.lines || st.lines) >= st.data.totalLines;
+    bar.push(`<button class="pvb" data-pvb="next"${atEnd ? " disabled" : ""}>下一页</button>`);
+    bar.push(`<span class="pv-sep"></span>`);
+    TEXT_PAGE_SIZES.forEach(n => bar.push(`<button class="pvb${st.lines === n ? " on" : ""}" data-pvb="size" data-n="${n}">${n} 行</button>`));
+  } else if (st.kind === "pdf" && st.pdfDoc) {
+    bar.push(`<button class="pvb" data-pvb="pprev"${st.page <= 1 ? " disabled" : ""}>上一页</button>`);
+    bar.push(`<span class="pv-page">第 ${st.page} / ${st.pages || 1} 页</span>`);
+    bar.push(`<button class="pvb" data-pvb="pnext"${st.page >= (st.pages || 1) ? " disabled" : ""}>下一页</button>`);
+  }
+  if (bar.length) bar.push(`<span class="pv-sep"></span>`);
+  bar.push(`<button class="pvb" data-pvb="open">打开</button>`);
+  bar.push(`<button class="pvb" data-pvb="folder">所在文件夹</button>`);
+  bar.push(`<button class="pvb" data-pvb="copy">复制路径</button>`);
+  $("pv-bar").innerHTML = bar.join("");
+  const body = $("preview-body");
+  if (st.loading) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
+  if (st.kind === "text") {
+    if (st.error) { body.innerHTML = fallbackHTML("&#x26A0;&#xFE0F;", "读取失败：" + st.error, st.path); return; }
+    if (!st.data) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
+    if (st.data.binary) { body.innerHTML = fallbackHTML("&#x1F4E6;", "二进制文件，无法按文本预览。", st.path); return; }
+    body.innerHTML = `<pre class="file-text">${esc(st.data.content || "")}</pre>` +
+      (st.data.truncated ? '<div class="empty">已到文件末尾（超出部分被截断）</div>' : "");
+    body.scrollTop = 0;
+    return;
+  }
+  if (st.kind === "image") {
+    body.innerHTML = fallbackHTML("&#x1F5BC;&#xFE0F;",
+      "图片预览暂不可用：内核文件契约 v0.2 未提供二进制内容端点（file/read 仅文本），已降级为「用系统打开」。", st.path);
+    return;
+  }
+  if (st.kind === "pdf") {
+    if (st.pdfError) { body.innerHTML = fallbackHTML("&#x1F4C4;", "PDF 预览不可用：" + st.pdfError, st.path); return; }
+    if (!st.pdfDoc) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
+    body.innerHTML = '<div class="pdf-wrap"><canvas></canvas></div>';
+    renderPdfPage(st);
+    return;
+  }
+}
+async function loadTextPage(st) {
+  st.loading = true;
+  st.error = null;
+  renderIfActive(st);
+  try {
+    const d = await apiFileRead(st.path, st.offset, st.lines);
+    st.data = d;
+    st.loading = false;
+    if (d && typeof d.offset === "number") st.offset = d.offset;
+  } catch (e) {
+    st.loading = false;
+    st.data = null;
+    st.error = e.message || String(e);
+  }
+  renderIfActive(st);
+}
+async function openFilePreview(path, title) {
+  if (!path) { toast("该条目无磁盘路径"); return; }
+  const ext = extOf(path);
+  let kind = "text";
+  if (ext === "pdf") kind = "pdf";
+  else if (IMG_EXTS.has(ext)) kind = "image";
+  const st = { kind, path, title: title || basename(path), offset: 0, lines: 30, page: 1,
+               data: null, stat: null, loading: true, error: null };
+  pushPreview(st);
+  FF.session = null;
+  renderPreviewState(st);
+  try { st.stat = await apiFileStat(path); } catch (e) { st.stat = null; }
+  if (kind === "text") await loadTextPage(st);
+  else if (kind === "pdf") await ensurePdf(st);
+  else { st.loading = false; renderIfActive(st); }
+}
+let pdfjsLoading = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfjsLoading) {
+    pdfjsLoading = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "vendor/pdfjs/pdf.min.js";
+      s.onload = () => {
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
+          resolve(window.pdfjsLib);
+        } else reject(new Error("pdfjs 加载异常"));
+      };
+      s.onerror = () => reject(new Error("vendor/pdfjs/pdf.min.js 加载失败"));
+      document.head.appendChild(s);
+    });
+  }
+  return pdfjsLoading;
+}
+async function loadPdfBytes(path) {
+  // 契约 v0.2 无原始字节端点；尽力走 Tauri asset 协议（壳未启用时失败并降级）
+  if (T && T.core && typeof T.core.convertFileSrc === "function") {
+    try {
+      const r = await fetch(T.core.convertFileSrc(path));
+      if (r.ok) return await r.arrayBuffer();
+    } catch (e) {}
+  }
+  throw new Error("无法获取文件字节：内核契约 v0.2 未提供原始字节端点，壳亦未启用 asset 协议");
+}
+async function ensurePdf(st) {
+  if (st.pdfDoc || st.pdfError || st.pdfStarted) return;
+  st.pdfStarted = true;
+  st.loading = true;
+  renderIfActive(st);
+  try {
+    const lib = await loadPdfJs();
+    const bytes = await loadPdfBytes(st.path);
+    st.pdfBuf = bytes;
+    const doc = await lib.getDocument({
+      data: bytes.slice(0),
+      cMapUrl: "vendor/pdfjs/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "vendor/pdfjs/standard_fonts/",
+      isEvalSupported: false,
+    }).promise;
+    st.pdfDoc = doc;
+    st.pages = doc.numPages;
+    st.page = Math.min(Math.max(1, st.page || 1), doc.numPages);
+    st.loading = false;
+  } catch (e) {
+    st.loading = false;
+    st.pdfError = e.message || String(e);
+  }
+  renderIfActive(st);
+}
+async function renderPdfPage(st) {
+  if (!st.pdfDoc) return;
+  const tok = (st.pdfRenderTok = (st.pdfRenderTok || 0) + 1);
+  try {
+    const page = await st.pdfDoc.getPage(Math.min(Math.max(1, st.page || 1), st.pdfDoc.numPages));
+    if (tok !== st.pdfRenderTok) return;
+    const body = $("preview-body");
+    let wrap = body.querySelector(".pdf-wrap");
+    if (!wrap) { body.innerHTML = '<div class="pdf-wrap"><canvas></canvas></div>'; wrap = body.querySelector(".pdf-wrap"); }
+    const canvas = wrap.querySelector("canvas");
+    const avail = Math.max(240, (body.clientWidth || 420) - 8);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(avail / base.width, 2.5) * dpr;
+    const vp = page.getViewport({ scale });
+    canvas.width = Math.floor(vp.width);
+    canvas.height = Math.floor(vp.height);
+    canvas.style.width = Math.floor(vp.width / dpr) + "px";
+    canvas.style.height = Math.floor(vp.height / dpr) + "px";
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+  } catch (e) {
+    if (tok === st.pdfRenderTok) {
+      st.pdfError = "渲染失败：" + (e.message || e);
+      renderIfActive(st);
+    }
+  }
+}
+function handlePvAct(act, n) {
+  const t = activeTab();
+  const st = t && t.preview;
+  if (!st) return;
+  switch (act) {
+    case "prev":
+      if (st.kind === "text" && st.offset > 0) { st.offset = Math.max(0, st.offset - st.lines); loadTextPage(st); }
+      break;
+    case "next":
+      if (st.kind === "text") { st.offset += st.lines; loadTextPage(st); }
+      break;
+    case "size":
+      if (st.kind === "text") {
+        st.lines = Math.min(500, Math.max(1, parseInt(n, 10) || 30));
+        st.offset = 0;
+        loadTextPage(st);
+      }
+      break;
+    case "pprev":
+      if (st.kind === "pdf" && st.page > 1) { st.page--; renderPreviewState(st); }
+      break;
+    case "pnext":
+      if (st.kind === "pdf" && st.page < (st.pages || 1)) { st.page++; renderPreviewState(st); }
+      break;
+    case "open": openWithSystem(st.path); break;
+    case "folder": revealPath(st.path); break;
+    case "copy": copyText(st.path); break;
+  }
+}
+function pvBarHandler(e) {
+  const b = e.target.closest("[data-pvb]");
+  if (!b) return;
+  handlePvAct(b.dataset.pvb, b.dataset.n);
+}
+$("pv-bar").addEventListener("click", pvBarHandler);
+$("preview-body").addEventListener("click", pvBarHandler);
+$("pv-back").addEventListener("click", backPreview);
+
+/* ---- 写操作（POST /api/file/op；破坏性操作二次确认；上限 128） ---- */
+function opLabel(op) {
+  return ({ rename: "重命名", copy: "复制", cut: "剪切", recycle: "删除", newFile: "新建文件", newDir: "新建文件夹" })[op] || op;
+}
+async function runFileOp(op, paths, extra) {
+  if (!paths || !paths.length) return false;
+  if (paths.length > OP_MAX) {
+    toast(`一次最多 ${OP_MAX} 项（当前选择了 ${paths.length} 项）`, 3200);
+    return false;
+  }
+  try {
+    const r = await apiFileOp(Object.assign({ op, paths }, extra || {}));
+    const results = (r && r.results) || [];
+    const fails = results.filter(x => x && !x.ok);
+    const okCount = results.length - fails.length;
+    if (fails.length) toast(`${opLabel(op)}：成功 ${okCount}，失败 ${fails.length}（${fails[0].error || "未知错误"}）`, 3500);
+    else toast(`${opLabel(op)}完成（${okCount} 项）`);
+    afterOpRefresh(op, paths, extra || {});
+    return fails.length === 0;
+  } catch (e) {
+    toast(`${opLabel(op)}失败：${e.message || e}`, 3500);
+    return false;
+  }
+}
+function afterOpRefresh(op, paths, extra) {
+  const t = activeTab();
+  if (!t) return;
+  const parents = new Set();
+  paths.forEach(p => parents.add(parentOf(p)));
+  if (extra.target) parents.add(extra.target);
+  parents.forEach(pp => {
+    if (pp && t.children.has(pp)) {
+      t.children.delete(pp);
+      if (t.expanded.has(pp)) fetchChildren(t, pp);
+    }
+  });
+  if (op === "rename") { const old = paths[0]; if (t.treeSel) t.treeSel.delete(old); }
+  const st = t.preview;
+  if (st && st.path) {
+    if (op === "recycle" && paths.includes(st.path)) closePreview();
+    else if (op === "rename" && paths[0] === st.path) {
+      st.path = joinPath(parentOf(paths[0]), extra.newName || basename(paths[0]));
+      st.title = extra.newName || st.title;
+      if (st.kind === "text" && !st.pdfDoc) { st.data = null; st.offset = 0; renderIfActive(st); loadTextPage(st); }
+      else renderIfActive(st);
+    }
+  }
+}
+function ctxItemsForPaths(paths, isDir) {
+  const items = [];
+  if (paths.length === 1) items.push({ label: "重命名", fn: () => renameFlow(paths[0]) });
+  items.push({ label: "复制路径", fn: () => copyText(paths[0]) });
+  if (paths.length === 1) items.push({ label: "在资源管理器显示", fn: () => revealPath(paths[0]) });
+  if (isDir) {
+    items.push("-");
+    items.push({ label: "新建文件", fn: () => newEntryFlow("newFile", paths[0]) });
+    items.push({ label: "新建文件夹", fn: () => newEntryFlow("newDir", paths[0]) });
+  }
+  items.push("-");
+  items.push({
+    label: paths.length > 1 ? `删除 ${paths.length} 项（回收站）` : "删除（回收站）",
+    danger: true, fn: () => deleteFlow(paths),
+  });
+  return items;
+}
+async function renameFlow(path) {
+  const old = basename(path);
+  const v = await openDlg({ title: "重命名", message: path, value: old, okText: "重命名" });
+  if (v == null) return;
+  const nn = String(v).trim();
+  if (!nn || nn === old) return;
+  if (/[\\/:*?"<>|]/.test(nn)) { toast('名称不能包含 \\ / : * ? " < > |'); return; }
+  await runFileOp("rename", [path], { target: parentOf(path), newName: nn });
+}
+async function newEntryFlow(op, dir) {
+  const isFile = op === "newFile";
+  const v = await openDlg({
+    title: isFile ? "新建文件" : "新建文件夹",
+    message: "位置：" + dir,
+    value: "",
+    placeholder: isFile ? "例如 note.txt" : "例如 docs",
+    okText: "创建",
+  });
+  if (v == null) return;
+  const nn = String(v).trim();
+  if (!nn) return;
+  if (/[\\/:*?"<>|]/.test(nn)) { toast('名称不能包含 \\ / : * ? " < > |'); return; }
+  await runFileOp(op, [dir], { newName: nn });
+}
+async function deleteFlow(paths) {
+  const msg = paths.length === 1
+    ? `确定把以下项移入回收站？（非永久删除）\n${paths[0]}`
+    : `确定把以下 ${paths.length} 项移入回收站？（非永久删除）`;
+  const ok = await openDlg({ title: "删除到回收站", message: msg, okText: "移入回收站", danger: true, input: false });
+  if (!ok) return;
+  await runFileOp("recycle", paths);
+}
+
+/* ---- 侧栏 / 标签栏事件 ---- */
+$("sb-collapse").addEventListener("click", () => {
+  const sb = $("sidebar");
+  sb.classList.toggle("collapsed");
+  $("sb-collapse").innerHTML = sb.classList.contains("collapsed") ? "&#x203A;" : "&#x2039;";
+});
+$("sb-refresh").addEventListener("click", () => {
+  const t = activeTab();
+  if (!t || !t.root) return;
+  t.children.clear();
+  t.expanded.add(t.root);
+  renderTree();
+});
+$("sb-go").addEventListener("click", () => setTreeRoot($("sb-root").value, {}));
+$("sb-root").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); setTreeRoot($("sb-root").value, {}); }
+});
+$("tab-new").addEventListener("click", newTab);
+
+/* ---- 启动：首个标签 + 初始渲染 ---- */
+FF.tabs = [createTabState()];
+FF.activeTabId = FF.tabs[0].id;
+renderTabs();
+renderTree();
+
 /* ============ 初始化 ============ */
 (async function init() {
   await loadConfig();
@@ -1453,6 +2509,9 @@ $("ob-retry").addEventListener("click", loadHealth);
     $("autostart-switch").classList.toggle("on", !!FF.cfg.autostart);
   }
   renderHighlight();
+  const root0 = FF.cfg.tree_root || "";
+  if (root0) setTreeRoot(root0, { silent: true });
+  else renderTree();
   loadHealth();
   $("q").focus();
 })();
