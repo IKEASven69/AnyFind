@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// build.mjs — dsh-recall 构建：
+// build.mjs — dsh-anyfind 构建：
 //   ① host 半：esbuild 打成 ESM 自包含 bundle（lib/index.js）。运行时依赖只有
 //      @deepseek-ai/dsh-tools 的 defineTool（纯 JS，内联打进产物）与 node: 内置
 //      （外置）——对齐 dsh-hippo tsdown alwaysBundle 的"目录外 link 装配不装 peers"
@@ -45,7 +45,7 @@ const result = await build({
 
 const code = result.outputFiles[0].text
 const wrapped = `window.__ModuleLoader__.load({
-\tid: "dsh-recall",
+\tid: "dsh-anyfind",
 \tfactory: (require) => {
 \t\tvar module = { exports: {} };
 \t\tvar exports = module.exports;
