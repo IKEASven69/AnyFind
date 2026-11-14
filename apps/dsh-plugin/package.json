@@ -18,7 +18,8 @@
     "cordis.patch.yml",
     "scripts",
     "src/vendor/LICENSE-preview-extra",
-    "src/vendor/VENDORED.md"
+    "src/vendor/VENDORED.md",
+    "LICENSE-pdfjs"
   ],
   "license": "MIT",
   "scripts": {

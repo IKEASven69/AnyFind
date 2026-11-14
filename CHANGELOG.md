@@ -21,6 +21,9 @@
 ### Fixed
 
 - 插件构建（`scripts/build.mjs`）：client 半 `__ModuleLoader__` 工厂作用域注入 `var react = require("react")`——vendor 预览模块顶层使用自由变量 `react`，缺注入时产物加载即崩；selftest 以工厂求值验证注入生效
+- 插件构建（`scripts/build.mjs`）：改名遗留 P0——客户端模块注册 id 硬编码 `dsh-recall` 漏改为 `dsh-anyfind`，产物曾以旧 id 注册；已修复并重建
+- `file/op` copy/cut 防自嵌套：target 位于源路径子树内（含相等）时在计划层直接拒绝——独立终审实测 `copy X → X/sub` 会触发 `Copy-Item -Recurse` 沿不断增长的子树无限递归复制直至超时、磁盘残留多层嵌套副本（含单测：子树/相等/大小写归一化三态拒绝，兄弟目录不受影响）
+- 再分发合规：pdfjs-dist（Apache-2.0）内嵌于 `lib/client.js`，其许可文本现随包分发（`LICENSE-pdfjs` 入 `files` 白名单，声明见 `src/vendor/VENDORED.md`）
 
 ### Changed
 

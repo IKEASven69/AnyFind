@@ -439,6 +439,15 @@ pub fn plan_op(
             let t = Path::new(target.unwrap());
             let mut out = Vec::with_capacity(paths.len());
             for p in paths {
+                // 防自嵌套：target 位于源路径子树内（含相等）时，Copy-Item/Move-Item -Recurse
+                // 会沿不断增长的子树无限递归复制直至超时（终审实测 copy X → X/sub 触发，
+                // 磁盘残留多层嵌套副本）——在计划层直接拒绝。
+                if is_within(Path::new(p), t) {
+                    return Err(format!(
+                        "目标目录位于源目录子树内（{p} → {}），已拒绝以避免递归复制",
+                        t.display()
+                    ));
+                }
                 let leaf = Path::new(p)
                     .file_name()
                     .ok_or_else(|| format!("无法确定源文件名: {p}"))?;
@@ -924,6 +933,26 @@ mod tests {
 
             let items = plan_op("cut", &s(&[r"D:\a\x.txt"]), Some(r"D:/t/"), None).unwrap();
             assert!(items[0].dest.starts_with(r"D:") && items[0].dest.ends_with("x.txt"));
+        }
+
+        #[test]
+        fn plan_copy_cut_rejects_target_inside_source_subtree() {
+            // 终审实测：copy D:\selfcopy → D:\selfcopy\sub 触发 Copy-Item -Recurse 无限自嵌套复制。
+            let err = plan_op(
+                "copy",
+                &s(&[r"D:\selfcopy"]),
+                Some(r"D:\selfcopy\sub"),
+                None,
+            )
+            .unwrap_err();
+            assert!(err.contains("源目录子树"), "实际错误：{err}");
+
+            // cut 同样拒绝；target == 源本身也拒绝（含相等）。
+            assert!(plan_op("cut", &s(&[r"D:\x"]), Some(r"D:\x"), None).is_err());
+            // 大小写与分隔符不敏感路径（is_within 归一化语义）同样命中。
+            assert!(plan_op("copy", &s(&[r"D:\X"]), Some(r"d:/x/sub"), None).is_err());
+            // 正常兄弟目录不受影响。
+            assert!(plan_op("copy", &s(&[r"D:\a"]), Some(r"D:\b"), None).is_ok());
         }
 
         #[test]
