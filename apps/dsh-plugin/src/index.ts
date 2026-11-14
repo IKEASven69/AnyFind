@@ -1,7 +1,8 @@
 /**
  * dsh-anyfind host 半：把 filefind 统一搜索内核接进 dsh。
  * 注册面：
- *   - webServer 代理路由 /dsh-anyfind/api/{health,search,resume,config}
+ *   - webServer 代理路由 /dsh-anyfind/api/{health,search,resume,config} 与
+ *     /dsh-anyfind/api/file/{list,read,stat,op}（文件端点状态码原样透传）
  *     （面板同源调用，避开浏览器直连 127.0.0.1:8790 的 CORS 问题）；
  *   - agent 工具 anyfind_search（ctx.tools）；
  *   - 斜杠命令 /anyfind（ctx.commands，结构子集类型，免依赖 dsh-commands）。
@@ -9,8 +10,9 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { extname, isAbsolute, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the Context.tools / Context.webServer merges（宿主提供，不打进产物）。
 import type {} from '@deepseek-ai/dsh-tools'
@@ -18,8 +20,9 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
   KernelDownError, KERNEL_DOWN_HINT, formatForAgent, formatForCommand,
-  getEndpoint, kernelHealth, kernelResume, kernelSearch, setEndpoint,
+  getEndpoint, kernelFileGet, kernelFileOp, kernelHealth, kernelResume, kernelSearch, setEndpoint,
 } from './core.ts'
+import type { RawResponse } from './core.ts'
 
 /** 插件配置（cordis.patch.yml config 节）：内核地址。 */
 export interface Config {
@@ -163,28 +166,34 @@ function admitRequest(host: Context, request: IncomingMessage, response: ServerR
   return true
 }
 
-function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+/** 读原始请求体（上限保护）：file/op 转发用——不解析不改写，原样交给内核判 4xx。 */
+function readRawBody(request: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     request.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > 4096) {
+      if (size > maxBytes) {
         reject(new Error('body too large'))
         request.destroy()
         return
       }
       chunks.push(chunk)
     })
-    request.on('end', () => {
-      try {
-        const raw = Buffer.concat(chunks).toString('utf8').trim()
-        resolve(raw === '' ? {} : JSON.parse(raw) as Record<string, unknown>)
-      } catch {
-        reject(new Error('invalid JSON body'))
-      }
-    })
+    request.on('end', () => { resolve(Buffer.concat(chunks).toString('utf8')) })
     request.on('error', reject)
+  })
+}
+
+function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  return readRawBody(request, 4096).then((raw) => {
+    const text = raw.trim()
+    if (text === '') return {}
+    try {
+      return JSON.parse(text) as Record<string, unknown>
+    } catch {
+      throw new Error('invalid JSON body')
+    }
   })
 }
 
@@ -200,6 +209,61 @@ function proxyCall(response: ServerResponse, fn: () => Promise<unknown>): void {
       sendJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
     },
   )
+}
+
+/**
+ * 文件端点透传代理：状态码 + 响应体原样带回（内核 400/404/413/501 不改写，
+ * 参数校验与钳制以内核为准，见 docs/api-contract.md v0.2）；内核 down 仍走
+ * 502 + down 标记降级，与 proxyCall 同一引导语义。
+ */
+function proxyRaw(response: ServerResponse, fn: () => Promise<RawResponse>): void {
+  void fn().then(
+    ({ status, body }) => { sendJson(response, status, body) },
+    (e: unknown) => {
+      if (e instanceof KernelDownError) {
+        sendJson(response, 502, { ok: false, down: true, error: e.message, hint: KERNEL_DOWN_HINT, endpoint: getEndpoint() })
+        return
+      }
+      sendJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
+    },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 面板预览端点（非内核契约，插件自有）：二进制字节 + office→PDF 转换
+// ---------------------------------------------------------------------------
+
+/** 预览字节上限（与 vendor 预览 3D 软上限 64MiB 对齐）。 */
+const PREVIEW_MAX_BYTES = 64 * 1024 * 1024
+/** office→PDF 输入上限（对齐 dsh office-kit maxInputBytes 默认 52428800）。 */
+const OFFICE_MAX_INPUT_BYTES = 52428800
+/** officeKit/officeToPdf 接受的扩展名（OfficeExtension）。 */
+const OFFICE_EXTS: ReadonlySet<string> = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'])
+
+/** 结构子集：@deepseek-ai/dsh-office-kit 的 ctx.officeKit.convert（避免引入运行时依赖）。 */
+interface OfficeKitSourceLike {
+  key: string
+  version: string
+  bytes?: number
+  read(signal: AbortSignal, maxBytes: number): Promise<{ bytes: Uint8Array; version: string }>
+}
+interface OfficeKitServiceLike {
+  convert(request: { extension: string; priority: 'foreground'; source: OfficeKitSourceLike }): Promise<{ pdf: Uint8Array }>
+}
+
+/** 文件系统错误码（ENOENT/EACCES…）取值。 */
+function errnoOf(e: unknown): string {
+  return typeof e === 'object' && e !== null && 'code' in e ? String((e as { code: unknown }).code) : ''
+}
+
+/** 非 JSON 二进制响应（bytes/office 转 PDF 用）。 */
+function sendBinary(response: ServerResponse, contentType: string, buf: Buffer): void {
+  response.writeHead(200, {
+    'content-type': contentType,
+    'content-length': String(buf.byteLength),
+    'cache-control': 'no-store',
+  })
+  response.end(buf)
 }
 
 function registerRoutes(ctx: Context, host: Context): Array<() => void> {
@@ -280,6 +344,135 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
         )
       },
     }),
+    // 文件端点（契约 v0.2）：query 原样转发，参数与响应结构同内核。
+    ...(['list', 'read', 'stat'] as const).map((name) => host.webServer.register({
+      kind: 'exact',
+      path: `/dsh-anyfind/api/file/${name}`,
+      handler: (request, response) => {
+        if (!admitRequest(host, request, response)) return
+        const rawUrl = request.url ?? '/'
+        const query = rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?')) : ''
+        proxyRaw(response, () => kernelFileGet(`/api/file/${name}`, query))
+      },
+    })),
+    host.webServer.register({
+      kind: 'exact',
+      path: '/dsh-anyfind/api/file/op',
+      handler: (request, response) => {
+        if (!admitRequest(host, request, response)) return
+        if (request.method !== 'POST') {
+          response.writeHead(405, { allow: 'POST' })
+          response.end()
+          return
+        }
+        // 原始体转发（上限 256KB ≫ 契约 128 条 paths 的实际体积）；非法 JSON 由内核回 400。
+        readRawBody(request, 256 * 1024).then(
+          (raw) => { proxyRaw(response, () => kernelFileOp(raw)) },
+          (e: unknown) => { sendJson(response, 400, { error: e instanceof Error ? e.message : String(e) }) },
+        )
+      },
+    }),
+    // 预览字节端点（面板专用）：3D/压缩包/字体/图片等二进制预览取原始字节，
+    // 不走内核契约（file/read 对含 NUL 文件回 binary:true 无 content）。
+    host.webServer.register({
+      kind: 'exact',
+      path: '/dsh-anyfind/api/file/bytes',
+      handler: (request, response) => {
+        if (!admitRequest(host, request, response)) return
+        const url = new URL(request.url ?? '/', 'http://localhost')
+        const target = url.searchParams.get('path') ?? ''
+        if (target === '' || !isAbsolute(target)) {
+          sendJson(response, 400, { error: 'path 必须是绝对路径' })
+          return
+        }
+        void (async () => {
+          const info = await stat(target)
+          if (!info.isFile()) {
+            sendJson(response, 400, { error: '不是普通文件' })
+            return
+          }
+          if (info.size > PREVIEW_MAX_BYTES) {
+            sendJson(response, 413, { error: `文件超过预览上限 ${PREVIEW_MAX_BYTES} 字节` })
+            return
+          }
+          sendBinary(response, 'application/octet-stream', await readFile(target))
+        })().catch((e: unknown) => {
+          const code = errnoOf(e)
+          if (code === 'ENOENT') { sendJson(response, 404, { error: '文件不存在' }); return }
+          if (code === 'EACCES' || code === 'EPERM') { sendJson(response, 403, { error: '没有读取权限' }); return }
+          sendJson(response, 500, { error: e instanceof Error ? e.message : String(e) })
+        })
+      },
+    }),
+    // office→PDF（dsh officeToPdf/officeKit 转换预览）：能力缺席 → 503，
+    // 面板降级「用系统应用打开（复制路径）」。
+    host.webServer.register({
+      kind: 'exact',
+      path: '/dsh-anyfind/api/office/pdf',
+      handler: (request, response) => {
+        if (!admitRequest(host, request, response)) return
+        const url = new URL(request.url ?? '/', 'http://localhost')
+        const target = url.searchParams.get('path') ?? ''
+        if (target === '' || !isAbsolute(target)) {
+          sendJson(response, 400, { error: 'path 必须是绝对路径' })
+          return
+        }
+        const ext = extname(target).slice(1).toLowerCase()
+        if (!OFFICE_EXTS.has(ext)) {
+          sendJson(response, 400, { error: `不支持的 office 类型 .${ext}（支持 ${[...OFFICE_EXTS].join('/')}）` })
+          return
+        }
+        const kit = host.get('officeKit') as OfficeKitServiceLike | undefined
+        if (kit === undefined || typeof kit.convert !== 'function') {
+          sendJson(response, 503, { error: 'officeToPdf 能力不可用（dsh officeKit 未挂载）', code: 'unavailable' })
+          return
+        }
+        void (async () => {
+          const info = await stat(target)
+          if (!info.isFile()) {
+            sendJson(response, 400, { error: '不是普通文件' })
+            return
+          }
+          if (info.size > OFFICE_MAX_INPUT_BYTES) {
+            sendJson(response, 413, { error: `Office 文件超过转换上限 ${OFFICE_MAX_INPUT_BYTES} 字节` })
+            return
+          }
+          const abs = resolve(target)
+          const version = `${info.mtimeMs}:${info.size}`
+          const source: OfficeKitSourceLike = {
+            // OfficeSourceKey 品牌在运行时是恒等函数（dsh-brand brandString），此处直接编码。
+            key: JSON.stringify(['dsh-anyfind', abs]),
+            version,
+            bytes: info.size,
+            async read(signal: AbortSignal, maxBytes: number) {
+              const cur = await stat(abs)
+              if (cur.size !== info.size || cur.mtimeMs !== info.mtimeMs) {
+                throw Object.assign(new Error('源文件在转换期间发生变化'), { code: 'source-changed' })
+              }
+              if (cur.size > maxBytes) {
+                throw Object.assign(new Error('源文件超过转换预留容量'), { code: 'input-too-large' })
+              }
+              const bytes = await readFile(abs)
+              return { bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), version }
+            },
+          }
+          const result = await kit.convert({ extension: ext, priority: 'foreground', source })
+          sendBinary(response, 'application/pdf', Buffer.from(result.pdf))
+        })().catch((e: unknown) => {
+          const code = errnoOf(e)
+          const msg = e instanceof Error ? e.message : String(e)
+          if (code === 'ENOENT') { sendJson(response, 404, { error: '文件不存在' }); return }
+          if (code === 'EACCES' || code === 'EPERM') { sendJson(response, 403, { error: '没有读取权限' }); return }
+          if (code === 'unavailable' || code === 'busy') { sendJson(response, 503, { error: msg, code }); return }
+          if (code === 'input-too-large' || code === 'output-too-large') { sendJson(response, 413, { error: msg, code }); return }
+          if (['invalid-document', 'unsupported-format', 'invalid-output', 'invalid-request', 'source-changed'].includes(code)) {
+            sendJson(response, 422, { error: msg, code })
+            return
+          }
+          sendJson(response, 500, { error: msg })
+        })
+      },
+    }),
   ]
 }
 
@@ -325,3 +518,9 @@ export function apply(ctx: Context, config?: Config): void {
 
 // 自测/调试面：共享搜索动作从此出口透出（宿主运行时不依赖）。
 export { runSearch }
+// 引用格式化 / 目录树文本（纯函数）：selftest 从 lib/index.js 直接断言。
+export { buildTreeText, formatReference, TREE_MAX_LINES } from './core.ts'
+export type { PreviewTreeNode } from './core.ts'
+// file/op 请求校验（纯函数）：批量上限等断言从 lib/index.js 取。
+export { FILE_OPS, FILE_OP_MAX_PATHS, validateFileOpRequest } from './core.ts'
+export type { FileOp, FileOpRequest } from './core.ts'

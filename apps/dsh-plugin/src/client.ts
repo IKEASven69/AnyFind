@@ -10,6 +10,21 @@
  *     只支持开 tab 不支持自定义动作，占位是干净方案）；
  *   - 浮层内容 = 面板整套（分段控件/瞬时切 tab/居中 loading/token 染色/语法卡/
  *     跳回会话/内核设置），居中 680px（max 90vw），分段控件不再受窄面板限制。
+ *   - 「文件」视图（浮层顶部分段切换 + betterSidebar 文件 tab 双路径，共享同一
+ *     模块级 store）：懒加载目录树（/dsh-anyfind/api/file/list）、噪声过滤、
+ *     截断提示、多标签（新建/关闭/切换/排序纯客户端零请求）。
+ *   - 第二步A：预览（file/read 文本分页 30/60/120、binary 占位；vendor 富格式
+ *     3D/压缩包/波形/固件/字幕/字体/TOML 等走 /api/file/bytes + src/vendor 预览组件
+ *     （见 src/vendor/VENDORED.md）、Office(doc/docx/xls/xlsx/ppt/pptx) 走 /api/office/pdf
+ *     （宿主 officeKit 转换）、能力缺席时降级「用系统应用打开（复制路径）」）、
+ *     会话头胶囊（inputActions 桥）、@ 触发源（search 出路径候选 → reference 插入）、
+ *     引用按钮 + 拖拽（application/x-anyfind-file；目录落框生成 ├─└─│ 文本树）。
+ *   - 第二步B：树节点/结果行右键写操作菜单（重命名 / 复制路径 / 删除→回收站 /
+ *     新建文件 · 新建文件夹 → POST file/op；破坏性 confirm；Ctrl 点选批量 ≤128
+ *     超限提示；条目与顺序对齐桌面端 ctxItemsForPaths）。
+ *   - 补丁：图片/PDF 预览改走内核 /api/file/read?format=base64（≤2MB 整文件，
+ *     文本与二进制通用）：图片 ≤1MB 拼 data URL 内联、超限/失败降级「打开」，
+ *     PDF atob 解字节喂 pdfjs；vendor 富格式仍走 /api/file/bytes。
  * 数据通路：同源 fetch /dsh-anyfind/api/*（host 半代理到内核，避开 CORS）。
  * @module dsh-anyfind/client
  */
@@ -19,10 +34,24 @@ import { createElement, useEffect, useLayoutEffect, useRef, useState, useSyncExt
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: ctx.slots（SlotRegistry 服务）由 ui-renderer 的 cordis Context 合并提供。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type { Hit, SearchResponse } from './core.ts'
-import { KIND_LABEL, KINDS, escapeWithMark, fmtMtime } from './core.ts'
+// Type-only: ctx.inputTriggers 服务面与 InputTriggerSource/InputTriggerCandidate
+// （inject 数组声明依赖后直取）。
+import type { InputTriggerCandidate, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+// PDF 预览：主 API 打进产物；worker 同捆并在主线程注册 globalThis.pdfjsWorker
+// （pdf.js 走 fake worker，无需独立 worker 文件 / workerSrc URL）。
+import * as pdfjs from 'pdfjs-dist'
+import 'pdfjs-dist/build/pdf.worker.min.mjs'
+import type { FileEntry, FileListResponse, FileOpRequest, FileReadResponse, Hit, PreviewTreeNode, SearchResponse } from './core.ts'
+import {
+  FILE_OP_MAX_PATHS, KIND_LABEL, KINDS, buildTreeText, escapeWithMark, fmtMtime, formatReference, stripMark,
+  validateFileOpRequest,
+} from './core.ts'
+// 富格式预览正文（vendor 自 tm5452/dsh-workspace-explorer，MIT，见 src/vendor/VENDORED.md）：
+// previewDefinitions 提供扩展名 → id，previewBodies 提供 id → React 正文组件。
+import { previewBodies, previewDefinitions } from './vendor/ui/views.js'
 
-export const inject = ['slots']
+// inputTriggers：@ 触发源依赖（宿主 0.2.1-rc.5 自带其客户端包，见 package.json inject）。
+export const inject = ['slots', 'inputTriggers']
 
 // ---------------------------------------------------------------------------
 // 官方侧边栏扩展面结构子集（与 dsh-hippo 同一注册表契约，免依赖 sidebar-right 包）
@@ -92,6 +121,8 @@ let disposeDirectTab: (() => void) | null = null
 
 const overlayStore = {
   open: false,
+  /** 浮层内视图：搜索（默认）/ 文件；模块级持久，关掉重开不丢。 */
+  view: 'search' as 'search' | 'files',
   listeners: new Set<() => void>(),
   toggle(): void {
     overlayStore.open = !overlayStore.open
@@ -107,10 +138,69 @@ const overlayStore = {
     overlayStore.open = false
     for (const l of overlayStore.listeners) l()
   },
+  setView(view: 'search' | 'files'): void {
+    if (overlayStore.view === view) return
+    overlayStore.view = view
+    for (const l of overlayStore.listeners) l()
+  },
   subscribe(fn: () => void): () => void {
     overlayStore.listeners.add(fn)
     return () => { overlayStore.listeners.delete(fn) }
   },
+}
+
+// ---------------------------------------------------------------------------
+// 全局 toast：面板内动作与 document 级拖拽共用（拖拽落点可能在任一面板外）
+// ---------------------------------------------------------------------------
+
+const toastStore = {
+  message: '',
+  timer: null as ReturnType<typeof setTimeout> | null,
+  listeners: new Set<() => void>(),
+  show(message: string): void {
+    toastStore.message = message
+    if (toastStore.timer !== null) clearTimeout(toastStore.timer)
+    toastStore.timer = setTimeout(() => {
+      toastStore.message = ''
+      toastStore.timer = null
+      for (const l of toastStore.listeners) l()
+    }, 2400)
+    for (const l of toastStore.listeners) l()
+  },
+  subscribe(fn: () => void): () => void {
+    toastStore.listeners.add(fn)
+    return () => { toastStore.listeners.delete(fn) }
+  },
+  get(): string {
+    return toastStore.message
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 输入框桥：会话头胶囊把 props.inputActions（跟随当前会话）存进模块级 store，
+// 「引用」按钮与拖拽落框共用；store 空（无会话/未挂载）→ 调用方降级复制路径。
+// 追加语义与 dsh-workspace-explorer 的 DockBridge 同型：读当前 draft 末尾补换行。
+// ---------------------------------------------------------------------------
+
+interface DraftBridge {
+  insert(text: string): void
+}
+
+let draftBridge: DraftBridge | null = null
+
+function setDraftBridge(bridge: DraftBridge): void {
+  draftBridge = bridge
+}
+
+function clearDraftBridge(bridge: DraftBridge): void {
+  if (draftBridge === bridge) draftBridge = null
+}
+
+/** 引用/拖拽落框共用：有桥 → setDraft 追加；无桥 → 复制 + toast（调用方已给文案）。 */
+function insertReferenceText(text: string): boolean {
+  if (draftBridge === null || text === '') return false
+  draftBridge.insert(text)
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +356,125 @@ const CSS = `
 .rc-ph kbd { font-size: 11px; border: 1px solid var(--rc-line); border-bottom-width: 2px; border-radius: 6px;
   padding: 2px 8px; background: var(--rc-card); color: var(--dsw-alias-label-primary, inherit); font-family: inherit; }
 
-@media (prefers-reduced-motion: reduce) { .rc-hit, .rc-syn, .rc-mask, .rc-modal, .rc-toast { animation: none !important; }
+/* 文件树面板：浮层「文件」视图与 betterSidebar 文件 tab 共用 */
+.rc-ovsw { display: flex; gap: 4px; flex: none; padding: 10px 14px 0; }
+.rc-ovsw-b { flex: 1; font-size: 12px; font-weight: 600; font-family: inherit; padding: 6px 0; cursor: pointer;
+  border: 1px solid var(--rc-line); background: transparent; color: var(--rc-mut); border-radius: 9px; }
+.rc-ovsw-b:hover { color: var(--dsw-alias-label-primary, inherit); border-color: var(--rc-a); }
+.rc-ovsw-b.active { background: var(--rc-card); color: var(--dsw-alias-label-primary, inherit); border-color: var(--rc-a); }
+.rc-ftabs { display: flex; align-items: center; gap: 6px; flex: none; padding: 12px 14px 8px;
+  overflow-x: auto; scrollbar-width: none; }
+.rc-ftabs::-webkit-scrollbar { display: none; }
+.rc-ftab { display: flex; align-items: center; gap: 2px; flex: none; max-width: 190px; padding: 4px 6px 4px 10px;
+  border-radius: 9px; border: 1px solid var(--rc-line); background: var(--rc-card); cursor: pointer;
+  font-size: 12px; color: var(--rc-mut); }
+.rc-ftab.active { border-color: var(--rc-a); color: var(--dsw-alias-label-primary, inherit); font-weight: 600; }
+.rc-ftab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-ftab-ops { display: inline-flex; opacity: 0; transition: opacity .15s; }
+.rc-ftab:hover .rc-ftab-ops, .rc-ftab.active .rc-ftab-ops { opacity: 1; }
+.rc-ftab-ops button { width: 16px; height: 16px; border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 0; border-radius: 4px; font-family: inherit; }
+.rc-ftab-ops button:hover { background: rgba(127,127,127,.18); }
+.rc-ftab-ops button:disabled { opacity: .3; cursor: default; background: transparent; }
+.rc-ftab-new { flex: none; width: 24px; height: 24px; border-radius: 8px; border: 1px dashed var(--rc-line);
+  background: transparent; color: var(--rc-mut); cursor: pointer; font-size: 14px; line-height: 1; }
+.rc-ftab-new:hover { border-color: var(--rc-a); color: var(--rc-a); }
+.rc-fbar { display: flex; gap: 6px; align-items: center; flex: none; padding: 0 14px 8px; }
+.rc-fpath { flex: 1; min-width: 0; font-size: 11.5px; font-family: monospace; padding: 5px 8px; border-radius: 7px;
+  border: 1px solid var(--rc-line); background: var(--rc-card); color: inherit; outline: none; }
+.rc-fpath:focus { border-color: var(--rc-a); }
+.rc-fbar .rc-btn { padding: 5px 10px; }
+.rc-tree { flex: 1; overflow-y: auto; padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 1px;
+  min-height: 0; }
+.rc-main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rc-frow { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; cursor: pointer;
+  font-size: 12.5px; user-select: none; }
+.rc-frow:hover { background: rgba(127,127,127,.1); }
+.rc-frow.sel { background: color-mix(in srgb, var(--rc-a) 18%, transparent); }
+.rc-frow.muted { cursor: default; color: var(--rc-mut); font-size: 11.5px; }
+.rc-frow.muted:hover { background: transparent; }
+.rc-fico { width: 14px; flex: none; text-align: center; color: var(--rc-mut); font-size: 10px; }
+.rc-frow.dir .rc-fico { color: var(--rc-a); }
+.rc-fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-fmeta { flex: none; font-size: 10.5px; color: var(--rc-mut); font-variant-numeric: tabular-nums; }
+.rc-fmeta.w { min-width: 58px; text-align: right; }
+.rc-fmeta.d { min-width: 96px; text-align: right; }
+.rc-fhint { font-size: 11.5px; line-height: 1.6; color: var(--rc-mut); padding: 6px 8px; }
+.rc-fempty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px;
+  text-align: center; color: var(--rc-mut); font-size: 12.5px; }
+.rc-ffoot { flex: none; border-top: 1px solid var(--rc-line); padding: 7px 12px; display: flex; gap: 8px;
+  align-items: center; }
+.rc-fsel { flex: 1; min-width: 0; font-size: 11px; font-family: monospace; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; color: var(--rc-mut); }
+
+/* 会话头胶囊（conversation.session.header.utilities） */
+.rc-cap { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; font-weight: 600; line-height: 1; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--rc-line); background: var(--rc-card); color: var(--rc-mut); }
+.rc-cap:hover { border-color: var(--rc-a); color: var(--rc-a); }
+.rc-cap.on { border-color: var(--rc-a); color: var(--dsw-alias-label-primary, inherit);
+  background: color-mix(in srgb, var(--rc-a) 14%, transparent); }
+
+/* 行内动作（悬停显现）：预览 / 引用 / 拖拽把手 */
+.rc-frow { position: relative; }
+.rc-fops { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: none; gap: 4px;
+  padding-left: 10px; background: linear-gradient(90deg, transparent, var(--rc-card) 18%); }
+.rc-frow:hover .rc-fops { display: inline-flex; }
+.rc-frow:hover .rc-fmeta { visibility: hidden; }
+.rc-fops button, .rc-hit-ops button { font-family: inherit; font-size: 10.5px; line-height: 1; padding: 3px 7px;
+  border-radius: 6px; border: 1px solid var(--rc-line); background: var(--dsw-alias-bg-base, #fff);
+  color: var(--rc-mut); cursor: pointer; white-space: nowrap; }
+.rc-fops button:hover, .rc-hit-ops button:hover { border-color: var(--rc-a); color: var(--rc-a); }
+.rc-hit-ops { display: flex; gap: 6px; flex-wrap: wrap; }
+.rc-frow[draggable='true'] { cursor: grab; }
+.rc-frow[draggable='true']:active { cursor: grabbing; }
+
+/* 预览面板（文本分页 / binary 占位 / 图片降级 / PDF canvas） */
+.rc-prev { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; padding: 2px 10px 10px; }
+.rc-prev-head { display: flex; align-items: center; gap: 8px; }
+.rc-prev-t { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.rc-prev-ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rc-psz { display: inline-flex; gap: 0; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; }
+.rc-psz button { font-family: inherit; font-size: 10.5px; padding: 3px 8px; border: none; cursor: pointer;
+  background: transparent; color: var(--rc-mut); }
+.rc-psz button + button { border-left: 1px solid var(--rc-line); }
+.rc-psz button.on { background: color-mix(in srgb, var(--rc-a) 18%, transparent); color: var(--rc-a); font-weight: 700; }
+.rc-pvinfo { font-size: 10.5px; color: var(--rc-mut); font-variant-numeric: tabular-nums; }
+.rc-pvbody { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--rc-line); border-radius: 9px;
+  background: var(--rc-card); padding: 8px 10px; }
+.rc-pvrich { padding: 0; display: flex; flex-direction: column; }
+.rc-pvrich > * { flex: 1; min-height: 0; width: 100%; }
+.rc-pvimg { display: flex; align-items: center; justify-content: center; padding: 4px; }
+.rc-pvimg img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.rc-pvpre { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px;
+  line-height: 1.55; white-space: pre-wrap; word-break: break-all; color: inherit; }
+.rc-pvph { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: 160px; text-align: center; color: var(--rc-mut); font-size: 12px; padding: 16px; }
+.rc-pvcanvas { max-width: 100%; height: auto; display: block; margin: 0 auto; background: #fff; border-radius: 4px; }
+.rc-pvrows { display: flex; flex-direction: column; gap: 2px; }
+.rc-pvrow { display: flex; gap: 8px; align-items: baseline; font-size: 11.5px; padding: 2px 4px; border-radius: 6px; }
+.rc-pvrow:hover { background: rgba(127,127,127,.1); }
+.rc-pvrow .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-pvrow .m { flex: none; font-size: 10px; color: var(--rc-mut); font-variant-numeric: tabular-nums; }
+
+/* 右键写操作菜单（树节点 / 搜索结果行） */
+.rc-ctx { position: fixed; z-index: 120; min-width: 196px; max-width: 320px; padding: 5px;
+  border-radius: 11px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, #fff));
+  border: 1px solid var(--rc-line); box-shadow: 0 16px 44px rgba(0,0,0,.32);
+  display: flex; flex-direction: column; gap: 1px; animation: rcIn .12s ease both; }
+.rc-ctx-head { font-size: 10.5px; color: var(--rc-mut); padding: 4px 10px 6px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.rc-ctx button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  font-family: inherit; font-size: 12.5px; padding: 7px 10px; border: none; background: transparent;
+  color: inherit; border-radius: 7px; cursor: pointer; }
+.rc-ctx button:hover:not(:disabled) { background: rgba(127,127,127,.14); }
+.rc-ctx button:disabled { opacity: .4; cursor: default; }
+.rc-ctx button.danger { color: var(--rc-err); }
+.rc-ctx button.danger:hover { background: rgba(211,47,47,.12); }
+.rc-ctx-sep { height: 1px; background: var(--rc-line); margin: 4px 6px; }
+
+@media (prefers-reduced-motion: reduce) { .rc-hit, .rc-syn, .rc-mask, .rc-modal, .rc-toast, .rc-ctx { animation: none !important; }
   .rc-seg-ind { transition: none !important; } .rc-skel-row::after, .rc-spin { animation: none !important; } }
 `
 
@@ -324,6 +532,93 @@ async function postResume(hit: Hit): Promise<string> {
   if (body.down === true) throw coreDown(body, '内核未启动')
   if (!res.ok || !body.ok || typeof body.command !== 'string') throw new Error(body.error ?? `HTTP ${res.status}`)
   return body.command
+}
+
+/** 目录列表（契约 v0.2 /api/file/list）：400/404/502 都带内核 error 文案给面板。 */
+async function getFileList(path: string): Promise<FileListResponse> {
+  const res = await fetch(`/dsh-anyfind/api/file/list?${new URLSearchParams({ path })}`, { cache: 'no-store' })
+  const body = await res.json().catch(() => null) as
+    (FileListResponse & { down?: boolean; error?: string; endpoint?: string }) | null
+  if (body !== null && body.down === true) throw coreDown(body, '内核未启动')
+  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+  if (!Array.isArray(body.entries)) throw new Error('内核响应结构异常（entries 缺失）')
+  return body
+}
+
+/** 文本读取窗口（契约 v0.2 /api/file/read）：binary:true 时无 content；>2MB → 413。 */
+async function getFileRead(path: string, offset: number, lines: number, signal?: AbortSignal): Promise<FileReadResponse> {
+  const params = new URLSearchParams({ path, offset: String(offset), lines: String(lines) })
+  const res = await fetch(`/dsh-anyfind/api/file/read?${params}`, { cache: 'no-store', signal })
+  const body = await res.json().catch(() => null) as
+    (FileReadResponse & { down?: boolean; error?: string; endpoint?: string }) | null
+  if (body !== null && body.down === true) throw coreDown(body, '内核未启动')
+  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+  if (typeof body.binary !== 'boolean') throw new Error('内核响应结构异常（binary 缺失）')
+  return body
+}
+
+/** base64 解字节（与桌面 b64ToBytes 同型）。 */
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+/**
+ * 字节通路（契约 v0.2 补丁 /api/file/read?format=base64）：≤2MB 整文件 base64，
+ * 文本与二进制通用；>2MB → 413。响应里 content_base64 在场即用
+ * （binary 标志在 base64 通路下可能缺席，不作强校验）。
+ */
+async function getFileBase64(path: string, signal?: AbortSignal): Promise<FileReadResponse> {
+  const params = new URLSearchParams({ path, format: 'base64' })
+  const res = await fetch(`/dsh-anyfind/api/file/read?${params}`, { cache: 'no-store', signal })
+  const body = await res.json().catch(() => null) as
+    (FileReadResponse & { down?: boolean; error?: string; endpoint?: string }) | null
+  if (body !== null && body.down === true) throw coreDown(body, '内核未启动')
+  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+  if (typeof body.content_base64 !== 'string' || body.content_base64 === '') {
+    throw new Error('内核未返回 content_base64')
+  }
+  return body
+}
+
+/** 图片内联显示上限（>1MB 不拼 data URL，走「打开」降级）。 */
+const PREVIEW_IMAGE_MAX_BYTES = 1024 * 1024
+
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.avif': 'image/avif',
+}
+
+function imageMime(ext: string): string {
+  return IMAGE_MIME[ext] ?? 'application/octet-stream'
+}
+
+/** 预览字节（/dsh-anyfind/api/file/bytes，插件自有端点；400/403/404/413 带 error 文案）。 */
+async function getFileBytes(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const res = await fetch(`/dsh-anyfind/api/file/bytes?${new URLSearchParams({ path })}`, { cache: 'no-store', signal })
+  if (!res.ok) throw new Error(await errorText(res))
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+/** Office→PDF（/dsh-anyfind/api/office/pdf，宿主 officeKit/officeToPdf；503=能力不可用）。 */
+async function getOfficePdf(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const res = await fetch(`/dsh-anyfind/api/office/pdf?${new URLSearchParams({ path })}`, { cache: 'no-store', signal })
+  if (!res.ok) throw new Error(await errorText(res))
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+/** 错误响应优先取 JSON error 文案，回退 HTTP 状态。 */
+async function errorText(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null) as { error?: string } | null
+  return typeof body?.error === 'string' ? `${res.status} ${body.error}` : `HTTP ${res.status}`
 }
 
 // ---------------------------------------------------------------------------
@@ -470,7 +765,7 @@ function Snippet({ text }: { text: string }): ReturnType<typeof createElement> {
   return createElement('div', { className: 'rc-hit-s', dangerouslySetInnerHTML: { __html: escapeWithMark(text) } })
 }
 
-function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown }: {
+function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown, onPreview, onReference, onMenu, onCtrlSelect }: {
   hit: Hit
   focused: boolean
   cmd: string | null
@@ -478,6 +773,10 @@ function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown }: {
   onResume: (hit: Hit) => void
   onCopy: (text: string, tip: string) => void
   onDown: (endpoint?: string) => void
+  onPreview: (hit: Hit) => void
+  onReference: (path: string) => void
+  onMenu: (e: ContextMenuLike, hit: Hit) => void
+  onCtrlSelect: (path: string) => void
 }): ReturnType<typeof createElement> {
   const [err, setErr] = useState<string | null>(null)
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -487,11 +786,39 @@ function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown }: {
   }, [focused])
 
   const meta = [hit.agent, hit.project, fmtMtime(hit.mtime)].filter((x) => x !== null && x !== '')
-  return createElement('div', { className: `rc-hit${focused ? ' focused' : ''}`, ref: rowRef },
+  const hasPath = hit.path !== null && hit.path !== ''
+  return createElement('div', {
+    className: `rc-hit${focused ? ' focused' : ''}`,
+    ref: rowRef,
+    draggable: hasPath,
+    onDragStart: hasPath
+      ? (e: DragStartLike) => {
+          startFileDrag(e, {
+            path: hit.path ?? '',
+            name: hit.title ?? fsBasename(hit.path ?? ''),
+            type: 'file',
+          })
+        }
+      : undefined,
+    onContextMenu: hasPath ? (e: ContextMenuLike) => { onMenu(e, hit) } : undefined,
+    onClick: hasPath
+      ? (e: { ctrlKey: boolean; metaKey: boolean; preventDefault(): void }) => {
+          if (!e.ctrlKey && !e.metaKey) return
+          e.preventDefault()
+          onCtrlSelect(hit.path ?? '')
+        }
+      : undefined,
+  },
     createElement('div', { className: 'rc-hit-t' }, hit.title ?? hit.path ?? '(无标题)'),
     meta.length > 0 ? createElement('div', { className: 'rc-hit-meta' }, ...meta.map((m, i) => createElement('span', { key: i }, m))) : null,
     hit.snippet !== null && hit.snippet !== '' ? createElement(Snippet, { text: hit.snippet }) : null,
     hit.path !== null && hit.path !== hit.title ? createElement('div', { className: 'rc-hit-path' }, hit.path) : null,
+    hasPath
+      ? createElement('div', { className: 'rc-hit-ops' },
+          createElement('button', { className: 'rc-btn', onClick: () => { onPreview(hit) } }, '预览'),
+          createElement('button', { className: 'rc-btn', onClick: () => { onReference(hit.path ?? '') } }, '引用'),
+        )
+      : null,
     hit.session_id !== null && hit.agent !== null
       ? createElement('button', { className: 'rc-btn rc-resume', disabled: busyKey,
           onClick: () => {
@@ -553,7 +880,7 @@ function AnyfindPanel(): ReturnType<typeof createElement> {
   const [sel, setSel] = useState(-1)
   const [cmds, setCmds] = useState<Record<string, string>>({})
   const [resumeBusy, setResumeBusy] = useState<string | null>(null)
-  const [toast, setToast] = useState('')
+  const toast = useSyncExternalStore(toastStore.subscribe, toastStore.get)
   const seq = useRef(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const hlRef = useRef<HTMLDivElement | null>(null)
@@ -568,12 +895,6 @@ function AnyfindPanel(): ReturnType<typeof createElement> {
     )
   }
   useEffect(checkHealth, [])
-
-  useEffect(() => {
-    if (toast === '') return
-    const t = setTimeout(() => { setToast('') }, 2200)
-    return () => { clearTimeout(t) }
-  }, [toast])
 
   /** 一次搜索缓存全部 groups；kind 切换不触发请求。 */
   const search = (): void => {
@@ -618,8 +939,8 @@ function AnyfindPanel(): ReturnType<typeof createElement> {
 
   const copyText = (text: string, tip: string): void => {
     void navigator.clipboard.writeText(text).then(
-      () => { setToast(tip) },
-      () => { setToast('复制失败（剪贴板权限），请手动复制') },
+      () => { toastStore.show(tip) },
+      () => { toastStore.show('复制失败（剪贴板权限），请手动复制') },
     )
   }
 
@@ -794,11 +1115,1209 @@ function AnyfindPanel(): ReturnType<typeof createElement> {
               setHealth(null)
               setDownDetail('内核连接中断')
             },
+            onPreview: (hh) => {
+              if (hh.path === null || hh.path === '') return
+              filesOpenPreview(hh.path, hh.title ?? fsBasename(hh.path), false)
+              overlayStore.setView('files')
+            },
+            onReference: (path) => { if (path !== '') referenceOrCopy(path) },
+            onMenu: (e, hh) => {
+              if (hh.path === null || hh.path === '') return
+              // 契约 Hit 无 is_dir 字段 → 结果行不给「新建」入口（桌面端靠 hit.is_dir 判定）。
+              openContextMenu(e, hh.path, fsParent(hh.path), false)
+            },
+            onCtrlSelect: (path) => { if (path !== '') filesToggleMulti(path) },
           })
         }),
       )) : []),
     ),
     toast !== '' ? createElement('div', { className: 'rc-toast' }, toast) : null,
+    createElement(FileContextMenu),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 文件树 + 多标签：模块级 store（浮层「文件」视图与 betterSidebar 文件 tab 共用）
+// 标签操作（新建/关闭/切换/排序）纯客户端状态零请求；list 只在目录首次展开/进入
+// 时懒加载一次，之后命中缓存。
+// ---------------------------------------------------------------------------
+
+/** 契约同款噪声目录：仅隐藏目录本身、大小写不敏感（内核 noise=0 已滤，客户端再滤一层）。 */
+const NOISE_DIRS: ReadonlySet<string> = new Set([
+  '.git', 'node_modules', 'dist', 'build', 'coverage', '.idea', 'target',
+])
+
+/** 新标签默认根目录（本工作区）；路径栏可跳任意绝对路径。 */
+const DEFAULT_ROOT = 'D:/coding'
+
+interface FileTab {
+  id: number
+  root: string
+  history: string[]
+  selected: string | null
+  /** Ctrl 点选批量集合（含单选；右键落在集合内 → 整批操作）。 */
+  multi: string[]
+}
+
+interface DirListState {
+  status: 'loading' | 'ready' | 'error'
+  entries: FileEntry[]
+  truncated: boolean
+  error: string
+}
+
+/** 预览目标（模块级，浮层与侧栏 tab 共享；offset/lines = file/read 分页窗口）。 */
+interface PreviewState {
+  path: string
+  name: string
+  isDir: boolean
+  offset: number
+  lines: number
+}
+
+interface FilesState {
+  tabs: FileTab[]
+  activeId: number
+  expanded: string[]
+  lists: Record<string, DirListState>
+  preview: PreviewState | null
+  nextId: number
+}
+
+const files = {
+  state: { tabs: [], activeId: -1, expanded: [], lists: {}, preview: null, nextId: 1 } as FilesState,
+  listeners: new Set<() => void>(),
+  seq: {} as Record<string, number>,
+}
+
+function emitFiles(): void {
+  for (const l of files.listeners) l()
+}
+
+function setFilesState(fn: (s: FilesState) => FilesState): void {
+  const next = fn(files.state)
+  if (next === files.state) return
+  files.state = next
+  emitFiles()
+}
+
+function filesSubscribe(fn: () => void): () => void {
+  files.listeners.add(fn)
+  return () => { files.listeners.delete(fn) }
+}
+
+function filesGetSnapshot(): FilesState {
+  return files.state
+}
+
+function findTab(s: FilesState, id: number): FileTab | null {
+  return s.tabs.find((t) => t.id === id) ?? null
+}
+
+function currentDir(t: FileTab): string {
+  return t.history[t.history.length - 1] ?? t.root
+}
+
+/** 新建标签（纯状态）：开在当前标签的目录上（无标签时开工作区根），随后由面板懒加载。 */
+function filesNewTab(root?: string): void {
+  const base = (root ?? DEFAULT_ROOT).trim()
+  if (base === '') return
+  setFilesState((s) => {
+    const id = s.nextId
+    const tab: FileTab = { id, root: base, history: [base], selected: null, multi: [] }
+    return { ...s, tabs: [...s.tabs, tab], activeId: id, nextId: id + 1 }
+  })
+}
+
+/** 关闭标签（纯状态）：关的是激活项则激活右侧邻居（无则左侧，全关则 -1）。 */
+function filesCloseTab(id: number): void {
+  setFilesState((s) => {
+    const i = s.tabs.findIndex((t) => t.id === id)
+    if (i < 0) return s
+    const tabs = s.tabs.filter((t) => t.id !== id)
+    const fallback = tabs.length === 0 ? -1 : tabs[Math.min(i, tabs.length - 1)].id
+    return { ...s, tabs, activeId: s.activeId === id ? fallback : s.activeId }
+  })
+}
+
+function filesActivate(id: number): void {
+  setFilesState((s) => (s.activeId === id || findTab(s, id) === null ? s : { ...s, activeId: id }))
+}
+
+/** 标签排序（纯状态）：delta = -1 左移 / +1 右移，越界 no-op。 */
+function filesMoveTab(id: number, delta: number): void {
+  setFilesState((s) => {
+    const i = s.tabs.findIndex((t) => t.id === id)
+    const j = i + delta
+    if (i < 0 || j < 0 || j >= s.tabs.length) return s
+    const tabs = [...s.tabs]
+    const moved = tabs[i]
+    tabs.splice(i, 1)
+    tabs.splice(j, 0, moved)
+    return { ...s, tabs }
+  })
+}
+
+/** 进入目录：压入当前标签的 history（同目录 no-op），随后懒加载。 */
+function filesNavigate(path: string): void {
+  const target = path.trim()
+  if (target === '') return
+  setFilesState((s) => {
+    const t = findTab(s, s.activeId)
+    if (t === null || currentDir(t) === target) return s
+    return { ...s, tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, history: [...x.history, target] } : x)) }
+  })
+  filesEnsureLoaded(target)
+}
+
+/** 历史后退：弹出 history 尾项（root 常驻栈底，弹不掉）。 */
+function filesBack(): void {
+  setFilesState((s) => {
+    const t = findTab(s, s.activeId)
+    if (t === null || t.history.length <= 1) return s
+    const history = t.history.slice(0, -1)
+    return { ...s, tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, history } : x)) }
+  })
+}
+
+/** 展开/收起目录（纯状态）；展开时懒加载子目录 list。 */
+function filesToggleExpand(path: string): void {
+  const willExpand = !files.state.expanded.includes(path)
+  setFilesState((s) => ({
+    ...s,
+    expanded: willExpand ? [...s.expanded, path] : s.expanded.filter((p) => p !== path),
+  }))
+  if (willExpand) filesEnsureLoaded(path)
+}
+
+/** 选中文件（纯状态，零请求）。 */
+function filesSelect(path: string | null): void {
+  setFilesState((s) => {
+    const t = findTab(s, s.activeId)
+    if (t === null) return s
+    const multi = path === null ? [] : [path]
+    if (t.selected === path && t.multi.length === multi.length && t.multi[0] === multi[0]) return s
+    return { ...s, tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, selected: path, multi } : x)) }
+  })
+}
+
+/** Ctrl/Meta 点选批量：在集合里则移出，否则加入（上限 128，超限提示不入集）。 */
+function filesToggleMulti(path: string): void {
+  setFilesState((s) => {
+    const t = findTab(s, s.activeId)
+    if (t === null) return s
+    const has = t.multi.includes(path)
+    if (!has && t.multi.length >= FILE_OP_MAX_PATHS) {
+      toastStore.show(`批量选择超过 ${FILE_OP_MAX_PATHS} 项上限，先取消部分再选`)
+      return s
+    }
+    const multi = has ? t.multi.filter((p) => p !== path) : [...t.multi, path]
+    const selected = has ? (t.selected === path ? multi[multi.length - 1] ?? null : t.selected) : path
+    return { ...s, tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, multi, selected } : x)) }
+  })
+}
+
+/**
+ * 右键前的选区归位：落在已有批量集合内 → 保留整批；否则收成单选该项。
+ * 返回该次右键应操作的路径集合。
+ */
+function filesContextSelect(path: string): string[] {
+  const st = files.state
+  const tab = findTab(st, st.activeId)
+  const multi = tab?.multi ?? []
+  if (multi.length > 0 && multi.includes(path)) return multi
+  filesSelect(path)
+  return [path]
+}
+
+/** 打开预览（树节点 / 搜索结果行共用）：新开窗口从 offset 0、每页 30 行起。 */
+function filesOpenPreview(path: string, name: string, isDir = false): void {
+  setFilesState((s) => ({
+    ...s,
+    preview: { path, name, isDir, offset: 0, lines: 30 },
+  }))
+}
+
+function filesClosePreview(): void {
+  setFilesState((s) => (s.preview === null ? s : { ...s, preview: null }))
+}
+
+/** 翻页：deltaLines 为 +lines/-lines（到头钳 0）。 */
+function filesPreviewOffset(deltaLines: number): void {
+  setFilesState((s) => {
+    if (s.preview === null) return s
+    const offset = Math.max(0, s.preview.offset + deltaLines)
+    if (offset === s.preview.offset) return s
+    return { ...s, preview: { ...s.preview, offset } }
+  })
+}
+
+/** 换每页行数（30/60/120）：回到第一页。 */
+function filesPreviewLines(lines: number): void {
+  setFilesState((s) => {
+    if (s.preview === null) return s
+    if (s.preview.lines === lines && s.preview.offset === 0) return s
+    return { ...s, preview: { ...s.preview, lines, offset: 0 } }
+  })
+}
+
+/** 懒加载目录 list：已有记录（loading/ready/error）则跳过，force 用于手动刷新。 */
+function filesEnsureLoaded(path: string, force = false): void {
+  if (!force && files.state.lists[path] !== undefined) return
+  const seq = (files.seq[path] ?? 0) + 1
+  files.seq[path] = seq
+  const pending: DirListState = { status: 'loading', entries: [], truncated: false, error: '' }
+  setFilesState((s) => ({ ...s, lists: { ...s.lists, [path]: pending } }))
+  void getFileList(path).then(
+    (r) => {
+      if (files.seq[path] !== seq) return
+      const ready: DirListState = {
+        status: 'ready',
+        entries: prepareEntries(r.entries),
+        truncated: r.truncated === true,
+        error: '',
+      }
+      setFilesState((s) => ({ ...s, lists: { ...s.lists, [path]: ready } }))
+    },
+    (e: unknown) => {
+      if (files.seq[path] !== seq) return
+      const failed: DirListState = {
+        status: 'error',
+        entries: [],
+        truncated: false,
+        error: e instanceof Error ? e.message : String(e),
+      }
+      setFilesState((s) => ({ ...s, lists: { ...s.lists, [path]: failed } }))
+    },
+  )
+}
+
+/** 契约过滤 + 排序：噪声目录隐藏（仅目录、大小写不敏感），目录优先按名排。 */
+function prepareEntries(entries: readonly FileEntry[]): FileEntry[] {
+  return entries
+    .filter((e) => !(e.is_dir && NOISE_DIRS.has(e.name.toLowerCase())))
+    .sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+      const al = a.name.toLowerCase()
+      const bl = b.name.toLowerCase()
+      if (al !== bl) return al < bl ? -1 : 1
+      return a.name < b.name ? -1 : 1
+    })
+}
+
+function joinFsPath(dir: string, name: string): string {
+  if (dir === '') return name
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/'
+  const last = dir[dir.length - 1]
+  return last === '/' || last === '\\' ? dir + name : dir + sep + name
+}
+
+function fsBasename(p: string): string {
+  const parts = p.replace(/[\\/]+$/, '').split(/[\\/]/)
+  return parts[parts.length - 1] ?? p
+}
+
+function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  return `${(n / 1024 ** 3).toFixed(1)} GB`
+}
+
+/** mtime 契约为 "YYYY-MM-DDTHH:MM:SS"（本地时区）→ 展示成 "YYYY-MM-DD HH:MM"。 */
+function fmtEntryTime(mtime: string | null): string {
+  if (mtime === null || mtime.length < 16) return ''
+  return `${mtime.slice(0, 10)} ${mtime.slice(11, 16)}`
+}
+
+interface FileRow {
+  key: string
+  depth: number
+  name: string
+  path: string
+  isDir: boolean
+  size: number
+  mtime: string | null
+  kind: 'entry' | 'loading' | 'error' | 'empty'
+  expanded: boolean
+}
+
+/** 由展开集 + 已加载 list 生成扁平行（未加载的展开子目录给 loading 行）。 */
+function buildFileRows(state: FilesState, root: string): FileRow[] {
+  const rows: FileRow[] = []
+  const expanded = new Set(state.expanded)
+  const walk = (dir: string, depth: number): void => {
+    const list = state.lists[dir]
+    if (list === undefined || list.status === 'loading') {
+      rows.push({ key: `${dir}#loading`, depth, name: '加载中…', path: dir, isDir: false, size: 0, mtime: null, kind: 'loading', expanded: false })
+      return
+    }
+    if (list.status === 'error') {
+      rows.push({ key: `${dir}#error`, depth, name: `加载失败：${list.error}`, path: dir, isDir: false, size: 0, mtime: null, kind: 'error', expanded: false })
+      return
+    }
+    if (list.entries.length === 0) {
+      rows.push({ key: `${dir}#empty`, depth, name: '（空目录）', path: dir, isDir: false, size: 0, mtime: null, kind: 'empty', expanded: false })
+      return
+    }
+    for (const e of list.entries) {
+      const p = joinFsPath(dir, e.name)
+      const isOpen = e.is_dir && expanded.has(p)
+      rows.push({ key: p, depth, name: e.name, path: p, isDir: e.is_dir, size: e.size, mtime: e.mtime, kind: 'entry', expanded: isOpen })
+      if (isOpen) walk(p, depth + 1)
+    }
+  }
+  walk(root, 0)
+  return rows
+}
+
+function FilesIcon({ size = 22 }: { size?: number }): ReturnType<typeof createElement> {
+  return createElement('svg', { width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': true, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' },
+    createElement('path', { d: 'M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7.5A1.5 1.5 0 0 1 17.5 19h-13A1.5 1.5 0 0 1 3 17.5z' }),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 预览（树节点 / 搜索结果行共用）：
+//   - 富格式（vendor previewDefinitions 命中）→ /api/file/bytes 取字节 → vendor 正文组件；
+//   - 图片 / PDF → /api/file/read?format=base64（契约 v0.2 补丁，≤2MB 整文件）：
+//     图片 ≤1MB 拼 data URL 内联（超限/取不到字节 →「打开」降级），
+//     PDF atob 解字节喂 pdfjs-dist（>2MB 内核 413 →「用系统应用打开」降级）；
+//   - Office(doc/docx/xls/xlsx/ppt/pptx) → /api/office/pdf（宿主 officeKit 转换 → pdfjs），
+//     能力/转换失败 → 降级「用系统应用打开（复制路径）」；
+//   - 其余 → file/read 文本分页 30/60/120；binary:true 占位。
+// ---------------------------------------------------------------------------
+
+const RASTER_IMAGE_EXTS: ReadonlySet<string> = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif',
+])
+
+/** officeKit/officeToPdf 接受的扩展名（与宿主 OFFICE_EXTS 一致）。 */
+const OFFICE_PREVIEW_EXTS: ReadonlySet<string> = new Set([
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+])
+
+/** vendor 预览（src/vendor/VENDORED.md）：扩展名 → previewBodies id。 */
+const VENDOR_PREVIEW_BY_EXT: ReadonlyMap<string, string> = (() => {
+  const map = new Map<string, string>()
+  const defs = previewDefinitions as unknown as Array<{ id: string; extensions: readonly string[] }>
+  for (const def of defs) {
+    for (const e of def.extensions) map.set(`.${e}`, def.id)
+  }
+  return map
+})()
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i <= 0 ? '' : name.slice(i).toLowerCase()
+}
+
+type PreviewView =
+  | { kind: 'loading' }
+  | { kind: 'error'; error: string }
+  | { kind: 'binary'; reason: 'binary' | 'image-oversize' | 'image-nob64' | 'pdf-nob64' }
+  | { kind: 'text'; content: string; totalLines: number; actualLines: number }
+  | { kind: 'pdf'; pages: number }
+  | { kind: 'image'; src: string; bytes: number }
+  | { kind: 'vendor'; id: string; data: Uint8Array }
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+/** 无二进制端点时的「打开」降级：复制路径 + 提示（记 gap：浏览器拿不到本机文件字节）。 */
+function openExternally(path: string): void {
+  void navigator.clipboard.writeText(path).then(
+    () => { toastStore.show('浏览器无法直接打开本机文件，已复制路径') },
+    () => { toastStore.show('复制失败（剪贴板权限），请手动复制') },
+  )
+}
+
+/** vendor 正文组件 props（src/vendor/ui/views.js 契约：content.data = 原始字节）。 */
+interface VendorBodyProps {
+  content: { data: Uint8Array }
+  resourceAddress?: string
+  t?: unknown
+}
+
+function FilePreview(): ReturnType<typeof createElement> | null {
+  const st = useSyncExternalStore(filesSubscribe, filesGetSnapshot)
+  const preview = st.preview
+  const [view, setView] = useState<PreviewView>({ kind: 'loading' })
+  const [retry, setRetry] = useState(0)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const docRef = useRef<pdfjs.PDFDocumentProxy | null>(null)
+  const taskRef = useRef<pdfjs.PDFDocumentLoadingTask | null>(null)
+
+  const path = preview?.path
+  const offset = preview?.offset ?? 0
+  const lines = preview?.lines ?? 30
+  const isDir = preview?.isDir === true
+
+  // 目录预览：直接用已缓存/懒加载的 list（file/read 对目录回 404）。
+  useEffect(() => {
+    if (path !== undefined && isDir) filesEnsureLoaded(path)
+  }, [path, isDir])
+
+  useEffect(() => {
+    if (path === undefined || isDir) return
+    let cancelled = false
+    setView({ kind: 'loading' })
+    const name = preview?.name ?? path
+    const ext = extOf(name)
+    const vendorId = VENDOR_PREVIEW_BY_EXT.get(ext)
+
+    const destroyPdf = (): void => {
+      // 上一窗口的 pdf 文档随重取释放（PDFDocumentProxy 无 destroy，按 loadingTask 释放）。
+      docRef.current = null
+      const task = taskRef.current
+      taskRef.current = null
+      if (task !== null && !task.destroyed) void task.destroy()
+    }
+
+    const loadPdf = (data: Uint8Array): void => {
+      const task = pdfjs.getDocument({ data })
+      taskRef.current = task
+      void task.promise.then(
+        (doc) => {
+          if (cancelled) { void task.destroy(); return }
+          docRef.current = doc
+          setView({ kind: 'pdf', pages: doc.numPages })
+        },
+        (e: unknown) => { if (!cancelled) setView({ kind: 'error', error: errMsg(e) }) },
+      )
+    }
+
+    const fail = (e: unknown): void => { if (!cancelled) setView({ kind: 'error', error: errMsg(e) }) }
+
+    // 富格式：vendor previewDefinitions 命中 → 字节 → vendor 正文组件。
+    if (vendorId !== undefined) {
+      void getFileBytes(path).then((data) => { if (!cancelled) setView({ kind: 'vendor', id: vendorId, data }) }, fail)
+      return () => { cancelled = true }
+    }
+
+    // Office → PDF（宿主 officeKit 转换）。
+    if (OFFICE_PREVIEW_EXTS.has(ext)) {
+      void getOfficePdf(path).then(loadPdf, fail)
+      return () => { cancelled = true; destroyPdf() }
+    }
+
+    // 图片 / PDF：内核 format=base64 字节通路（≤2MB 整文件，文本与二进制通用）。
+    // 图片 ≤1MB 拼 data URL 内联，超限/取不到字节 → 「打开」降级；PDF atob 解字节喂 pdfjs。
+    if (ext === '.pdf' || RASTER_IMAGE_EXTS.has(ext)) {
+      void getFileBase64(path).then(
+        (r) => {
+          if (cancelled) return
+          const b64 = r.content_base64 as string
+          const bytes = base64ToBytes(b64)
+          if (RASTER_IMAGE_EXTS.has(ext)) {
+            if (bytes.length > PREVIEW_IMAGE_MAX_BYTES) {
+              setView({ kind: 'binary', reason: 'image-oversize' })
+              return
+            }
+            setView({ kind: 'image', src: `data:${imageMime(ext)};base64,${b64}`, bytes: bytes.length })
+            return
+          }
+          loadPdf(bytes)
+        },
+        fail,
+      )
+      return () => { cancelled = true; destroyPdf() }
+    }
+
+    // 其余：内核文本窗口分页。
+    void getFileRead(path, offset, lines).then(
+      (r) => {
+        if (cancelled) return
+        if (r.binary === true) {
+          setView({ kind: 'binary', reason: 'binary' })
+          return
+        }
+        setView({ kind: 'text', content: r.content ?? '', totalLines: r.totalLines ?? 0, actualLines: r.lines ?? 0 })
+      },
+      fail,
+    )
+    return () => { cancelled = true; destroyPdf() }
+  }, [path, offset, lines, isDir, retry, preview?.name])
+
+  // PDF 画布挂载后再渲染（canvas 由 view.kind==='pdf' 分支产出）。
+  useEffect(() => {
+    if (view.kind !== 'pdf') return
+    const canvas = canvasRef.current
+    const doc = docRef.current
+    if (canvas === null || doc === null) return
+    let cancelled = false
+    void (async () => {
+      const page = await doc.getPage(1)
+      const viewport = page.getViewport({ scale: 1 })
+      const ctx = canvas.getContext('2d')
+      if (ctx === null || cancelled) return
+      canvas.width = Math.max(1, Math.floor(viewport.width))
+      canvas.height = Math.max(1, Math.floor(viewport.height))
+      await page.render({ canvas, viewport }).promise
+    })().catch((e: unknown) => { if (!cancelled) setView({ kind: 'error', error: errMsg(e) }) })
+    return () => { cancelled = true }
+  }, [view.kind])
+
+  if (preview === null) return null
+
+  const name = preview.name
+  const isRasterImage = RASTER_IMAGE_EXTS.has(extOf(name))
+
+  let body: ReturnType<typeof createElement>
+  if (isDir) {
+    const list = path !== undefined ? st.lists[path] : undefined
+    body = list === undefined || list.status === 'loading'
+      ? createElement('div', { className: 'rc-ph' }, '加载目录…')
+      : list.status === 'error'
+        ? createElement('div', { className: 'rc-banner rc-banner-err' }, list.error)
+        : createElement('div', { className: 'rc-pvbody' },
+            createElement('div', { className: 'rc-pvinfo', style: { marginBottom: 6 } },
+              `目录内容（${list.entries.length} 项，噪声目录已隐藏）`),
+            createElement('div', { className: 'rc-pvrows' },
+              ...prepareEntries(list.entries).map((e) => createElement('div', { key: e.name, className: 'rc-pvrow' },
+                createElement('span', { className: 'n' }, `${e.is_dir ? '▸ ' : ''}${e.name}`),
+                createElement('span', { className: 'm' }, e.is_dir ? '—' : fmtBytes(e.size)),
+                createElement('span', { className: 'm' }, fmtEntryTime(e.mtime)),
+              )),
+            ),
+          )
+  } else if (view.kind === 'loading') {
+    body = createElement('div', { className: 'rc-ph' }, createElement('span', { className: 'rc-spin' }), '读取中…')
+  } else if (view.kind === 'error') {
+    const openable = OFFICE_PREVIEW_EXTS.has(extOf(name)) || isRasterImage || extOf(name) === '.pdf'
+    body = createElement('div', { className: 'rc-ph' },
+      createElement('div', { className: 'rc-banner rc-banner-err', style: { maxWidth: '100%' } }, view.error),
+      createElement('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
+        createElement('button', { className: 'rc-btn rc-btn-pri', onClick: () => { setRetry((n) => n + 1) } }, '⟳ 重试'),
+        // office 转换不可用（503/能力缺席/失败）或 图片/PDF 取字节失败（>2MB 413 等）→「打开」降级。
+        openable && path !== null && path !== undefined
+          ? createElement('button', { className: 'rc-btn', onClick: () => { openExternally(path) } }, '用系统应用打开（复制路径）')
+          : null,
+      ),
+    )
+  } else if (view.kind === 'binary') {
+    // 降级面：文本通路遇 NUL 二进制，或 base64 通路超限/缺字节 →「打开」。
+    const notes: Record<typeof view.reason, string> = {
+      binary: '二进制文件（前 8KB 含 NUL），不支持文本预览',
+      'image-oversize': `图片超过 ${Math.round(PREVIEW_IMAGE_MAX_BYTES / 1024)}KB（base64 内联上限），不在面板内显示`,
+      'image-nob64': '内核未返回图片字节（content_base64 缺失）',
+      'pdf-nob64': '内核未返回 PDF 字节（content_base64 缺失），无法渲染',
+    }
+    body = createElement('div', { className: 'rc-ph' },
+      createElement('div', null, notes[view.reason]),
+      path !== null && path !== undefined
+        ? createElement('button', { className: 'rc-btn rc-btn-pri', onClick: () => { openExternally(path) } }, '打开（复制路径）')
+        : null,
+    )
+  } else if (view.kind === 'pdf') {
+    body = createElement('div', { className: 'rc-pvbody' },
+      createElement('canvas', { className: 'rc-pvcanvas', ref: canvasRef }),
+      createElement('div', { className: 'rc-pvinfo', style: { marginTop: 6, textAlign: 'center' } },
+        `PDF 第 1 页 / 共 ${view.pages} 页`),
+    )
+  } else if (view.kind === 'image') {
+    body = createElement('div', { className: 'rc-pvbody rc-pvimg' },
+      createElement('img', { src: view.src, alt: name, draggable: false }),
+      createElement('div', { className: 'rc-pvinfo', style: { marginTop: 6, textAlign: 'center' } },
+        `data URL（${imageMime(extOf(name))}，${fmtBytes(view.bytes)}）`),
+    )
+  } else if (view.kind === 'vendor') {
+    const bodies = previewBodies as unknown as Record<string, unknown>
+    const VendorBody = typeof bodies[view.id] === 'function'
+      ? bodies[view.id] as (props: VendorBodyProps) => ReturnType<typeof createElement>
+      : null
+    body = createElement('div', { className: 'rc-pvbody rc-pvrich' },
+      VendorBody !== null
+        ? createElement(VendorBody, { content: { data: view.data }, resourceAddress: preview.path, t: null })
+        : createElement('div', { className: 'rc-ph' }, `预览组件缺失：${view.id}`),
+    )
+  } else {
+    const start = offset + 1
+    const end = offset + view.actualLines
+    const atEnd = view.totalLines === 0 || end >= view.totalLines
+    body = createElement('div', { className: 'rc-prev' },
+      createElement('div', { className: 'rc-prev-ctl' },
+        createElement('div', { className: 'rc-psz' }, ...[30, 60, 120].map((n) => createElement('button', {
+          key: n,
+          className: preview.lines === n ? 'on' : '',
+          onClick: () => { filesPreviewLines(n) },
+        }, String(n)))),
+        createElement('button', { className: 'rc-btn', disabled: offset <= 0,
+          onClick: () => { filesPreviewOffset(-preview.lines) } }, '← 上一页'),
+        createElement('button', { className: 'rc-btn', disabled: atEnd,
+          onClick: () => { filesPreviewOffset(preview.lines) } }, '下一页 →'),
+        createElement('span', { className: 'rc-pvinfo' },
+          view.totalLines === 0 ? '空文件' : `行 ${start}–${end} / ${view.totalLines}`),
+      ),
+      createElement('div', { className: 'rc-pvbody' },
+        createElement('pre', { className: 'rc-pvpre' }, view.content)),
+    )
+  }
+
+  return createElement('div', { className: 'rc-prev' },
+    previewHead(preview, name),
+    body,
+  )
+}
+
+function previewHead(preview: PreviewState, name: string): ReturnType<typeof createElement> {
+  return createElement('div', { className: 'rc-prev-head' },
+    createElement('span', { className: 'rc-prev-t', title: preview.path },
+      `${preview.isDir ? '📁 ' : '📄 '}${name}`),
+    createElement('span', { className: 'rc-pvinfo' }, preview.isDir ? '目录' : '预览'),
+    createElement('button', { className: 'rc-btn', onClick: filesClosePreview }, '× 关闭'),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 引用与拖拽：「引用」按钮 → inputActions.setDraft 追加（无桥降级复制+toast）；
+// 条目 draggable → application/x-anyfind-file（JSON {path,name,type}），
+// document 级 drop：落 composer 卡片追加，否则复制+toast；目录落框先生成
+// ├─└─│ 文本树（≤200 行，core.buildTreeText）。
+// ---------------------------------------------------------------------------
+
+/** 「引用」统一入口：有输入框桥 → 追加；否则复制路径 + toast（任务降级要求）。 */
+function referenceOrCopy(path: string): void {
+  const text = formatReference([path])
+  if (text === '') return
+  if (insertReferenceText(text)) {
+    toastStore.show('已追加到输入框')
+    return
+  }
+  void navigator.clipboard.writeText(text).then(
+    () => { toastStore.show('已复制路径（输入框未就绪）') },
+    () => { toastStore.show('复制失败（剪贴板权限），请手动复制') },
+  )
+}
+
+const FILE_DRAG_MIME = 'application/x-anyfind-file'
+const TREE_WALK_MAX_DEPTH = 4
+const TREE_WALK_MAX_NODES = 300
+
+interface FileDragPayload {
+  path: string
+  name: string
+  type: 'file' | 'folder'
+}
+
+interface DragStartLike {
+  dataTransfer: DataTransfer | null
+}
+
+function startFileDrag(e: DragStartLike, payload: FileDragPayload): void {
+  const dt = e.dataTransfer
+  if (dt === null) return
+  dt.setData(FILE_DRAG_MIME, JSON.stringify(payload))
+  dt.setData('text/plain', payload.path)
+  dt.effectAllowed = 'copy'
+}
+
+function readDragPayload(dt: DataTransfer | null): FileDragPayload | null {
+  if (dt === null) return null
+  const raw = dt.getData(FILE_DRAG_MIME)
+  if (raw === '') return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<FileDragPayload>
+    if (typeof parsed.path !== 'string' || parsed.path === '') return null
+    return {
+      path: parsed.path,
+      name: typeof parsed.name === 'string' && parsed.name !== '' ? parsed.name : fsBasename(parsed.path),
+      type: parsed.type === 'folder' ? 'folder' : 'file',
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 目录 → 树节点：懒加载递归，深度 4 / 节点 300 双上限（读不到就当叶子）。 */
+async function walkDirToTree(path: string, depth: number, budget: { left: number }): Promise<PreviewTreeNode> {
+  const node: PreviewTreeNode = { name: fsBasename(path) }
+  budget.left -= 1
+  if (depth >= TREE_WALK_MAX_DEPTH || budget.left <= 0) return node
+  let entries: FileEntry[] = []
+  try {
+    entries = prepareEntries((await getFileList(path)).entries)
+  } catch {
+    return node
+  }
+  const children: PreviewTreeNode[] = []
+  for (const e of entries) {
+    if (budget.left <= 0) break
+    const childPath = joinFsPath(path, e.name)
+    if (e.is_dir) {
+      children.push(await walkDirToTree(childPath, depth + 1, budget))
+    } else {
+      budget.left -= 1
+      children.push({ name: e.name })
+    }
+  }
+  if (children.length > 0) node.children = children
+  return node
+}
+
+async function buildDirTreeText(path: string): Promise<string> {
+  const tree = await walkDirToTree(path, 0, { left: TREE_WALK_MAX_NODES })
+  return buildTreeText([tree])
+}
+
+/** 落点交付：composer 卡片 → setDraft 追加（目录=文本树）；否则复制 + toast。 */
+async function deliverDroppedFile(payload: FileDragPayload, onComposer: boolean): Promise<void> {
+  let text = formatReference([payload.path])
+  let wasTree = false
+  if (payload.type === 'folder') {
+    try {
+      text = await buildDirTreeText(payload.path)
+      wasTree = true
+    } catch {
+      text = formatReference([payload.path])
+      wasTree = false
+    }
+  }
+  if (onComposer && insertReferenceText(text)) {
+    toastStore.show(wasTree ? '已追加目录树到输入框' : '已追加到输入框')
+    return
+  }
+  void navigator.clipboard.writeText(text).then(
+    () => { toastStore.show(wasTree ? '已复制目录树文本' : '已复制路径') },
+    () => { toastStore.show('复制失败（剪贴板权限），请手动复制') },
+  )
+}
+
+/** document 级拖拽监听（apply 注册一次）：capture 阶段接管，避免 composer 重复插文本。 */
+function attachFileDragListeners(): () => void {
+  const onDragOver = (e: DragEvent): void => {
+    if (e.dataTransfer === null || !e.dataTransfer.types.includes(FILE_DRAG_MIME)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  const onDrop = (e: DragEvent): void => {
+    const payload = readDragPayload(e.dataTransfer)
+    if (payload === null) return
+    e.preventDefault()
+    e.stopPropagation()
+    const target = e.target
+    const onComposer = target instanceof Element && target.closest('[data-composer-card]') !== null
+    void deliverDroppedFile(payload, onComposer)
+  }
+  document.addEventListener('dragover', onDragOver, true)
+  document.addEventListener('drop', onDrop, true)
+  return () => {
+    document.removeEventListener('dragover', onDragOver, true)
+    document.removeEventListener('drop', onDrop, true)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 右键写操作菜单：树节点 / 搜索结果行 contextmenu → 重命名 / 复制路径 /
+// 删除(回收站) / 新建文件 / 新建文件夹，全部 POST /dsh-anyfind/api/file/op；
+// 破坏性操作 confirm；Ctrl 点选批量（≤128，超限提示）。
+// 位置与目标集在模块级 store——浮层（搜索/文件视图）与侧栏文件 tab 共用一份。
+// ---------------------------------------------------------------------------
+
+interface MenuState {
+  x: number
+  y: number
+  /** 重命名/复制/删除的目标（批量时多条）。 */
+  paths: string[]
+  /** 新建文件/文件夹的父目录（仅 canNew 时展示入口，对齐桌面端）。 */
+  newDir: string
+  /** 单选且是目录 → 给「新建文件/新建文件夹」（桌面端 ctxItemsForPaths 同条件）。 */
+  canNew: boolean
+}
+
+const menuStore = {
+  state: null as MenuState | null,
+  listeners: new Set<() => void>(),
+  open(state: MenuState): void {
+    menuStore.state = state
+    for (const l of menuStore.listeners) l()
+  },
+  close(): void {
+    if (menuStore.state === null) return
+    menuStore.state = null
+    for (const l of menuStore.listeners) l()
+  },
+  subscribe(fn: () => void): () => void {
+    menuStore.listeners.add(fn)
+    return () => { menuStore.listeners.delete(fn) }
+  },
+  get(): MenuState | null {
+    return menuStore.state
+  },
+}
+
+/** 取父目录：`D:/a/b.txt` → `D:/a`；盘符根 `D:/a.txt` → `D:/`。 */
+function fsParent(p: string): string {
+  const norm = p.replace(/[\\/]+$/, '')
+  const i = Math.max(norm.lastIndexOf('/'), norm.lastIndexOf('\\'))
+  if (i < 0) return norm
+  const parent = norm.slice(0, i)
+  if (parent === '') return norm.startsWith('/') ? '/' : norm
+  return /^[a-zA-Z]:$/.test(parent) ? `${parent}/` : parent
+}
+
+/** 提交 file/op：先本地校验（超限/缺参直接提示），再透传内核并聚合 results。 */
+async function runFileOp(body: FileOpRequest, doneTip: string): Promise<void> {
+  const invalid = validateFileOpRequest(body)
+  if (invalid !== null) {
+    toastStore.show(invalid)
+    return
+  }
+  let res: Response
+  try {
+    res = await fetch('/dsh-anyfind/api/file/op', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (e) {
+    toastStore.show(errMsg(e))
+    return
+  }
+  const data = await res.json().catch(() => null) as {
+    ok?: boolean
+    results?: Array<{ path: string; ok: boolean; error?: string }>
+    error?: string
+    down?: boolean
+    endpoint?: string
+  } | null
+  if (data !== null && data.down === true) {
+    toastStore.show(data.error ?? 'AnyFind 搜索服务未启动')
+    return
+  }
+  if (data === null || !res.ok) {
+    toastStore.show(data?.error ?? `HTTP ${res.status}`)
+    return
+  }
+  const results = Array.isArray(data.results) ? data.results : []
+  const failed = results.filter((r) => r.ok === false)
+  if (failed.length > 0) {
+    toastStore.show(`${failed.length}/${results.length} 项失败：${failed[0].error ?? '未知错误'}`)
+  } else {
+    toastStore.show(doneTip)
+  }
+  refreshAfterOp(body)
+  // 全部成功才收尾选区/预览（部分失败时保留现场，便于重试）。
+  if (failed.length === 0) {
+    if (body.op === 'recycle' || body.op === 'rename') dropFromSelection(body.paths)
+    settlePreviewAfterOp(body)
+  }
+}
+
+/** 写操作后的预览收尾（桌面 afterOpRefresh 同型：删了就关，改名跟着改）。 */
+function settlePreviewAfterOp(body: FileOpRequest): void {
+  const st = files.state.preview
+  if (st === null) return
+  if (body.op === 'recycle' && body.paths.includes(st.path)) {
+    filesClosePreview()
+    return
+  }
+  if (body.op === 'rename' && body.paths[0] === st.path && typeof body.newName === 'string' && body.newName !== '') {
+    const nextPath = joinFsPath(fsParent(st.path), body.newName)
+    setFilesState((s) => (s.preview === null ? s : {
+      ...s,
+      preview: { ...s.preview, path: nextPath, name: body.newName as string },
+    }))
+  }
+}
+
+/** 写操作后只刷新已缓存过的相关目录（避免凭空发请求）。 */
+function refreshAfterOp(body: FileOpRequest): void {
+  const dirs = new Set<string>()
+  if (body.op === 'newFile' || body.op === 'newDir') {
+    for (const p of body.paths) dirs.add(p) // new* 的 paths 就是父目录
+  } else {
+    for (const p of body.paths) dirs.add(fsParent(p))
+    if (typeof body.target === 'string' && body.target !== '') dirs.add(body.target)
+  }
+  for (const d of dirs) {
+    if (files.state.lists[d] !== undefined) filesEnsureLoaded(d, true)
+  }
+}
+
+/** 删除后把消失的路径从选区剔掉。 */
+function dropFromSelection(paths: readonly string[]): void {
+  setFilesState((s) => {
+    const t = findTab(s, s.activeId)
+    if (t === null) return s
+    const gone = new Set(paths)
+    const multi = t.multi.filter((p) => !gone.has(p))
+    const selected = t.selected !== null && gone.has(t.selected) ? multi[multi.length - 1] ?? null : t.selected
+    if (multi.length === t.multi.length && selected === t.selected) return s
+    return { ...s, tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, multi, selected } : x)) }
+  })
+}
+
+function menuCopyPaths(paths: readonly string[]): void {
+  const text = formatReference(paths)
+  menuStore.close()
+  if (text === '') return
+  void navigator.clipboard.writeText(text).then(
+    () => { toastStore.show(paths.length > 1 ? `已复制 ${paths.length} 条路径` : '已复制路径') },
+    () => { toastStore.show('复制失败（剪贴板权限），请手动复制') },
+  )
+}
+
+/** 与桌面端 renameFlow/newEntryFlow 同款名称预检（非法字符直接提示，不发请求）。 */
+function invalidName(newName: string): boolean {
+  if (/[\\/:*?"<>|]/.test(newName)) {
+    toastStore.show('名称不能包含 \\ / : * ? " < > |')
+    return true
+  }
+  return false
+}
+
+function menuRename(path: string): void {
+  const oldName = fsBasename(path)
+  const next = window.prompt('重命名', oldName)
+  menuStore.close()
+  if (next === null) return
+  const newName = next.trim()
+  if (newName === '') {
+    toastStore.show('新名称不能为空')
+    return
+  }
+  if (newName === oldName) return
+  if (invalidName(newName)) return
+  void runFileOp({ op: 'rename', paths: [path], target: fsParent(path), newName }, `已重命名为 ${newName}`)
+}
+
+function menuRecycle(paths: readonly string[]): void {
+  // 文案对齐桌面端 deleteFlow（单条带路径、多条带计数，均标非永久删除）。
+  const msg = paths.length === 1
+    ? `确定把以下项移入回收站？（非永久删除）\n${paths[0]}`
+    : `确定把以下 ${paths.length} 项移入回收站？（非永久删除）`
+  const ok = window.confirm(msg)
+  menuStore.close()
+  if (!ok) return
+  const label = paths.length === 1 ? fsBasename(paths[0]) : `${paths.length} 项`
+  void runFileOp({ op: 'recycle', paths: [...paths] }, `已移入回收站：${label}`)
+}
+
+function menuNew(op: 'newFile' | 'newDir', dir: string): void {
+  const next = window.prompt(op === 'newFile' ? `在 ${dir} 新建文件` : `在 ${dir} 新建文件夹`, '')
+  menuStore.close()
+  if (next === null) return
+  const newName = next.trim()
+  if (newName === '') {
+    toastStore.show('名称不能为空')
+    return
+  }
+  if (invalidName(newName)) return
+  void runFileOp({ op, paths: [dir], newName },
+    op === 'newFile' ? `已新建文件 ${newName}` : `已新建文件夹 ${newName}`)
+}
+
+interface ContextMenuLike {
+  clientX: number
+  clientY: number
+  preventDefault(): void
+}
+
+/** 打开右键菜单：右键落在批量选区内 → 整批操作，否则收成单选该项。 */
+function openContextMenu(e: ContextMenuLike, path: string, newDir: string, isDirTarget: boolean): void {
+  e.preventDefault()
+  const paths = filesContextSelect(path)
+  menuStore.open({
+    x: e.clientX,
+    y: e.clientY,
+    paths,
+    newDir,
+    canNew: isDirTarget && paths.length === 1,
+  })
+}
+
+function FileContextMenu(): ReturnType<typeof createElement> | null {
+  const m = useSyncExternalStore(menuStore.subscribe, menuStore.get)
+  const open = m !== null
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent): void => {
+      const t = e.target
+      if (t instanceof Element && t.closest('.rc-ctx') !== null) return
+      menuStore.close()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation() // 只关菜单，别把背后的浮层一起 Esc 掉
+      menuStore.close()
+    }
+    document.addEventListener('click', onClick, true)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('click', onClick, true)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  if (m === null) return null
+  const single = m.paths.length === 1
+  const left = Math.max(4, Math.min(m.x, window.innerWidth - 200))
+  const top = Math.max(4, Math.min(m.y, window.innerHeight - 250))
+  // 条目与顺序对齐桌面端 ctxItemsForPaths（重命名/复制路径/[新建仅目录]/删除）。
+  return createElement('div', { className: 'rc-ctx', style: { left, top }, role: 'menu' },
+    createElement('div', { className: 'rc-ctx-head' },
+      single ? fsBasename(m.paths[0] ?? '') : `已选 ${m.paths.length} 项`),
+    createElement('button', {
+      role: 'menuitem',
+      disabled: !single,
+      title: single ? '重命名' : '批量时请逐项重命名',
+      onClick: () => { if (single) menuRename(m.paths[0]) },
+    }, '✎ 重命名'),
+    createElement('button', { role: 'menuitem', onClick: () => { menuCopyPaths(m.paths) } }, '⧉ 复制路径'),
+    m.canNew ? createElement('div', { className: 'rc-ctx-sep' }) : null,
+    m.canNew ? createElement('button', { role: 'menuitem', onClick: () => { menuNew('newFile', m.newDir) } }, '＋ 新建文件') : null,
+    m.canNew ? createElement('button', { role: 'menuitem', onClick: () => { menuNew('newDir', m.newDir) } }, '＋ 新建文件夹') : null,
+    createElement('div', { className: 'rc-ctx-sep' }),
+    createElement('button', { role: 'menuitem', className: 'danger', onClick: () => { menuRecycle(m.paths) } },
+      single ? '🗑 删除（回收站）' : `🗑 删除 ${m.paths.length} 项（回收站）`),
+  )
+}
+
+function FileTreePanel(): ReturnType<typeof createElement> {
+  const st = useSyncExternalStore(filesSubscribe, filesGetSnapshot)
+  const toast = useSyncExternalStore(toastStore.subscribe, toastStore.get)
+  const tab = findTab(st, st.activeId)
+  const current = tab !== null ? currentDir(tab) : null
+  const list = current !== null ? st.lists[current] : undefined
+  const [draft, setDraft] = useState('')
+
+  useEffect(() => { setDraft(current ?? '') }, [current])
+  useEffect(() => { if (current !== null) filesEnsureLoaded(current) }, [current])
+
+  const rows = current !== null && list?.status === 'ready' ? buildFileRows(st, current) : []
+  const truncatedNote = list?.status === 'ready' && list.truncated
+    ? `目录条目超过上限已截断，只显示前 ${list.entries.length} 条（噪声目录已隐藏）——进入子目录可继续浏览`
+    : ''
+
+  const body = tab === null
+    ? createElement('div', { className: 'rc-fempty' },
+        createElement(FilesIcon, { size: 26 }),
+        createElement('div', null, '还没有文件标签'),
+        createElement('button', { className: 'rc-btn rc-btn-pri', onClick: () => { filesNewTab() } }, '＋ 新建标签'),
+      )
+    : list === undefined || list.status === 'loading'
+      ? createElement('div', { className: 'rc-loading' },
+          createElement('div', { className: 'rc-loading-t' }, createElement('span', { className: 'rc-spin' }), '加载目录…'),
+          createElement('div', { className: 'rc-skel' },
+            createElement('div', { className: 'rc-skel-row' }),
+            createElement('div', { className: 'rc-skel-row' }),
+            createElement('div', { className: 'rc-skel-row' }),
+          ),
+        )
+      : list.status === 'error'
+        ? createElement('div', { className: 'rc-guide' },
+            createElement('div', { className: 'rc-banner rc-banner-err' }, list.error),
+            createElement('button', { className: 'rc-btn rc-btn-pri', style: { alignSelf: 'flex-start' },
+              onClick: () => { if (current !== null) filesEnsureLoaded(current, true) } }, '⟳ 重试'),
+          )
+        : createElement('div', { className: 'rc-tree' }, ...rows.map((row) => {
+            if (row.kind !== 'entry') {
+              return createElement('div', { key: row.key, className: 'rc-frow muted', style: { paddingLeft: 18 + row.depth * 14 } },
+                createElement('span', { className: 'rc-fname' }, row.name))
+            }
+            const selected = tab.multi.includes(row.path) || tab.selected === row.path
+            return createElement('div', {
+              key: row.key,
+              className: `rc-frow${row.isDir ? ' dir' : ''}${selected ? ' sel' : ''}`,
+              style: { paddingLeft: 10 + row.depth * 14 },
+              title: row.path,
+              draggable: true,
+              onDragStart: (e: DragStartLike) => {
+                startFileDrag(e, { path: row.path, name: row.name, type: row.isDir ? 'folder' : 'file' })
+              },
+              onClick: (e: { ctrlKey: boolean; metaKey: boolean }) => {
+                if (e.ctrlKey || e.metaKey) {
+                  filesToggleMulti(row.path)
+                  return
+                }
+                row.isDir ? filesToggleExpand(row.path) : filesSelect(row.path)
+              },
+              onDoubleClick: () => { if (row.isDir) filesNavigate(row.path) },
+              onContextMenu: (e: ContextMenuLike) => {
+                openContextMenu(e, row.path, row.isDir ? row.path : (current ?? fsParent(row.path)), row.isDir)
+              },
+            },
+              createElement('span', { className: 'rc-fico' }, row.isDir ? (row.expanded ? '▾' : '▸') : '·'),
+              createElement('span', { className: 'rc-fname' }, row.name),
+              row.isDir ? null : createElement('span', { className: 'rc-fmeta w' }, fmtBytes(row.size)),
+              createElement('span', { className: 'rc-fmeta d' }, fmtEntryTime(row.mtime)),
+              createElement('span', {
+                className: 'rc-fops',
+                onClick: (e: { stopPropagation(): void }) => { e.stopPropagation() },
+              },
+                createElement('button', { title: '预览',
+                  onClick: () => { filesOpenPreview(row.path, row.name, row.isDir) } }, '预览'),
+                createElement('button', { title: '引用到输入框',
+                  onClick: () => { referenceOrCopy(row.path) } }, '引用'),
+              ),
+            )
+          }))
+
+  return createElement('div', { className: 'rc-panel' },
+    createElement(StyleTag),
+    createElement('div', { className: 'rc-ftabs' },
+      ...st.tabs.map((t, i) => {
+        const active = t.id === st.activeId
+        const label = fsBasename(currentDir(t))
+        return createElement('div', {
+          key: t.id,
+          className: `rc-ftab${active ? ' active' : ''}`,
+          title: currentDir(t),
+          onClick: () => { filesActivate(t.id) },
+        },
+          createElement('span', { className: 'rc-ftab-name' }, label),
+          createElement('span', { className: 'rc-ftab-ops' },
+            createElement('button', { title: '左移', disabled: i === 0,
+              onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); filesMoveTab(t.id, -1) } }, '‹'),
+            createElement('button', { title: '右移', disabled: i === st.tabs.length - 1,
+              onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); filesMoveTab(t.id, 1) } }, '›'),
+            createElement('button', { title: '关闭标签',
+              onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); filesCloseTab(t.id) } }, '×'),
+          ),
+        )
+      }),
+      createElement('button', { className: 'rc-ftab-new', title: '新建标签',
+        onClick: () => { filesNewTab(tab !== null ? currentDir(tab) : undefined) } }, '＋'),
+    ),
+    st.preview !== null
+      ? createElement(FilePreview)
+      : createElement('div', { className: 'rc-main' },
+          createElement('div', { className: 'rc-fbar' },
+            createElement('button', { className: 'rc-btn', title: '后退', disabled: (tab?.history.length ?? 0) <= 1,
+              onClick: filesBack }, '←'),
+            createElement('input', {
+              className: 'rc-fpath',
+              value: draft,
+              spellCheck: false,
+              placeholder: '绝对路径，如 D:/coding…',
+              onChange: (e: { target: { value: string } }) => { setDraft(e.target.value) },
+              onKeyDown: (e: { key: string; preventDefault(): void }) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                if (draft.trim() !== '') filesNavigate(draft)
+              },
+            }),
+            createElement('button', { className: 'rc-btn', title: '刷新', disabled: current === null,
+              onClick: () => { if (current !== null) filesEnsureLoaded(current, true) } }, '⟳'),
+          ),
+          truncatedNote !== '' ? createElement('div', { className: 'rc-banner rc-banner-info' }, truncatedNote) : null,
+          body,
+        ),
+    st.preview === null && tab !== null && (tab.selected !== null || tab.multi.length > 0)
+      ? createElement('div', { className: 'rc-ffoot' },
+          createElement('span', { className: 'rc-fsel', title: tab.multi.join('\n') },
+            tab.multi.length > 1 ? `已选 ${tab.multi.length} 项` : (tab.selected ?? '')),
+          createElement('button', { className: 'rc-btn',
+            onClick: () => { menuCopyPaths(tab.multi.length > 0 ? tab.multi : [tab.selected ?? '']) } },
+            '复制路径'),
+        )
+      : null,
+    toast !== '' ? createElement('div', { className: 'rc-toast' }, toast) : null,
+    createElement(FileContextMenu),
   )
 }
 
@@ -808,6 +2327,7 @@ function AnyfindPanel(): ReturnType<typeof createElement> {
 
 function AnyfindOverlay(): ReturnType<typeof createElement> | null {
   const open = useSyncExternalStore(overlayStore.subscribe, () => overlayStore.open)
+  const view = useSyncExternalStore(overlayStore.subscribe, () => overlayStore.view)
 
   // 全局热键：Ctrl+K 呼出/关闭（宿主核心包与已装插件均无此组合占用——已排查
   // dsh-fresh packages/apps、dsh-better-sidebar、dsh-hippo、dsh-termfleet 源码）。
@@ -837,8 +2357,22 @@ function AnyfindOverlay(): ReturnType<typeof createElement> | null {
     className: 'rc-mask',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) overlayStore.close() },
   },
-    createElement('div', { className: 'rc-modal', role: 'dialog', 'aria-label': '统一搜索' },
-      createElement(AnyfindPanel),
+    createElement('div', { className: 'rc-modal', role: 'dialog', 'aria-label': view === 'files' ? '文件' : '统一搜索' },
+      createElement('div', { className: 'rc-ovsw', role: 'tablist', 'aria-label': '视图切换' },
+        createElement('button', {
+          className: `rc-ovsw-b${view === 'search' ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': view === 'search',
+          onClick: () => { overlayStore.setView('search') },
+        }, '搜索'),
+        createElement('button', {
+          className: `rc-ovsw-b${view === 'files' ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': view === 'files',
+          onClick: () => { overlayStore.setView('files') },
+        }, '文件'),
+      ),
+      view === 'search' ? createElement(AnyfindPanel) : createElement(FileTreePanel),
     ),
   )
 }
@@ -886,6 +2420,121 @@ function AnyfindGuideIcon(props?: { size?: number }): ReturnType<typeof createEl
   return createElement(AnyfindMark, { size: props?.size ?? 22 })
 }
 
+// ---------------------------------------------------------------------------
+// 会话头胶囊：conversation.session.header.utilities（session scope，组件自动收
+// props.inputActions / props.useInput 等标准 props）。点击打开 AnyfindOverlay；
+// props.inputActions 存进模块级 store（跟随当前会话，换会话由 effect 重挂）。
+// 形态参照 dsh-workspace-explorer 的 HeaderAction（功能名 + 图标胶囊）。
+// ---------------------------------------------------------------------------
+
+interface CapsuleProps {
+  inputActions?: { setDraft(text: string): void } | undefined
+  useInput?: ((selector: (s: unknown) => unknown) => unknown) | undefined
+}
+
+function AnyfindCapsule(props: CapsuleProps): ReturnType<typeof createElement> {
+  const hasActions = typeof props.inputActions?.setDraft === 'function'
+  const hasInput = typeof props.useInput === 'function'
+  const input = hasInput ? props.useInput?.((s: unknown) => s) : undefined
+  const draft = input !== null && typeof input === 'object' && typeof (input as { draft?: unknown }).draft === 'string'
+    ? (input as { draft: string }).draft
+    : ''
+  const draftRef = useRef('')
+  useEffect(() => { draftRef.current = draft }, [draft])
+  const open = useSyncExternalStore(overlayStore.subscribe, () => overlayStore.open)
+
+  // 只有 inputActions 与 useInput 齐备才架桥：缺 useInput 就不知道当前 draft，
+  // 盲用 setDraft 会清空输入框——此时保持无桥，「引用」走复制降级。
+  useEffect(() => {
+    if (!hasActions || !hasInput) return
+    const actions = props.inputActions
+    if (actions === undefined) return
+    const bridge: DraftBridge = {
+      insert(text: string): void {
+        const cur = draftRef.current
+        const sep = cur === '' || cur.endsWith('\n') ? '' : '\n'
+        actions.setDraft(cur + sep + text)
+      },
+    }
+    setDraftBridge(bridge)
+    return () => { clearDraftBridge(bridge) }
+  }, [props.inputActions, hasActions, hasInput])
+
+  return createElement('button', {
+    className: `rc-cap${open ? ' on' : ''}`,
+    type: 'button',
+    title: 'AnyFind：统一搜索 / 文件预览 / @ 文件引用（Ctrl+K 亦可呼出）',
+    onClick: () => { overlayStore.show() },
+  }, createElement(AnyfindMark, { size: 13 }), 'AnyFind')
+}
+
+// ---------------------------------------------------------------------------
+// @ 触发源 anyfind-files：按输入查 /dsh-anyfind/api/search?q=…&kinds=file&limit=50，
+// 出路径候选；onPick 返 reference 插入（ref=绝对路径，codec 原样序列化）。
+// ---------------------------------------------------------------------------
+
+async function searchFileCandidates(query: string, signal?: AbortSignal): Promise<InputTriggerCandidate[]> {
+  const params = new URLSearchParams({ q: query, kinds: 'file', limit: '50' })
+  const res = await fetch(`/dsh-anyfind/api/search?${params}`, { cache: 'no-store', signal })
+  const body = await res.json().catch(() => null) as (SearchResponse & { down?: boolean; error?: string }) | null
+  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+  const hits = (body.groups.file ?? []).filter((h) => typeof h.path === 'string' && h.path !== '')
+  return hits.map((h) => {
+    const path = h.path ?? ''
+    // 内核 file 组不区分目录：无扩展名按目录呈现（启发式）。
+    const folder = extOf(path) === ''
+    const snippet = h.snippet !== null && h.snippet !== '' ? stripMark(h.snippet).replace(/\s+/g, ' ').trim() : ''
+    return {
+      name: path,
+      value: path,
+      icon: folder ? 'folder' as const : 'file' as const,
+      ...(snippet !== '' ? { description: snippet.slice(0, 140) } : {}),
+    } satisfies InputTriggerCandidate
+  })
+}
+
+function registerAnyfindTrigger(ctx: Context): void {
+  const triggers = ctx.inputTriggers
+  if (triggers === undefined || typeof triggers.registerSource !== 'function') {
+    console.warn('[dsh-anyfind] 宿主未提供 inputTriggers 服务，@ 文件引用触发源跳过注册')
+    return
+  }
+  const source: InputTriggerSource = {
+    trigger: '@',
+    name: 'anyfind-files',
+    order: 10,
+    async candidates(_session, req): Promise<readonly InputTriggerCandidate[]> {
+      const query = req.query.trim()
+      if (query === '') return []
+      try {
+        return await searchFileCandidates(query, req.signal)
+      } catch {
+        return []
+      }
+    },
+    onPick(pick) {
+      const path = pick.candidate.value ?? pick.candidate.name
+      if (path === '') return undefined
+      return {
+        insert: {
+          // 必须等于注册名：提交时 serializeReference 按 source 名在 roster 里找 codec
+          // （input-trigger lib/client.js：roster.all().find(s => s.name === source)）。
+          source: 'anyfind-files',
+          ref: path,
+          label: fsBasename(path),
+          appearance: pick.candidate.icon === 'folder' ? 'folder' : 'file',
+          clipboardText: path,
+        },
+      }
+    },
+    codec: {
+      clipboardText: (ref) => ref,
+      serialize: (ref) => Promise.resolve(ref),
+    },
+  }
+  ctx.effect(() => triggers.registerSource(source), 'dsh-anyfind: @ trigger')
+}
+
 export function apply(ctx: Context): void {
   const slots: unknown = ctx.slots
   if (
@@ -904,6 +2553,16 @@ export function apply(ctx: Context): void {
     { name: 'shell.overlay', id: 'anyfind-spotlight', order: 48 },
     () => createElement(AnyfindOverlay),
   ))
+
+  // 会话头胶囊：点击开浮层；组件把 props.inputActions 存进模块级桥（跟随当前会话）。
+  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register(
+    { name: 'conversation.session.header.utilities', id: 'anyfind-capsule', order: 30, label: () => 'AnyFind' },
+    (props: CapsuleProps) => createElement(AnyfindCapsule, props),
+  ))
+
+  // @ 触发源（export inject 已声明 inputTriggers）与 document 级拖拽落框。
+  registerAnyfindTrigger(ctx)
+  ctx.effect(() => attachFileDragListeners(), 'dsh-anyfind: file dnd')
 
   // 入口保留但点击改为呼出浮层：占位 tab（挂载即 show + 提示卡）。双路径互斥，kind 固定 'anyfind'。
   const registerDirectTab = (tabs: SidebarRightTabsRegistry): (() => void) => {
@@ -955,6 +2614,7 @@ export function apply(ctx: Context): void {
   ctx.inject(['betterSidebar'], (sc) => {
     betterSidebarSvc = (sc.get('betterSidebar') as BetterSidebarLike | undefined) ?? null
     let disposeBs: (() => void) | null = null
+    let disposeBsFiles: (() => void) | null = null
     if (betterSidebarSvc !== null) {
       disposeBs = betterSidebarSvc.registerTab({
         id: 'anyfind',
@@ -965,10 +2625,21 @@ export function apply(ctx: Context): void {
         single: true,
         component: (props) => createElement(AnyfindTabPlaceholder, props as TabComponentPropsLike),
       })
+      // 文件 tab：与浮层「文件」视图共享同一模块级 store（标签/展开/选中/缓存互通）。
+      disposeBsFiles = betterSidebarSvc.registerTab({
+        id: 'anyfind-files',
+        title: () => '文件',
+        description: () => '文件树（多标签）：目录浏览 / 噪声过滤 / 文件选中',
+        icon: (size) => FilesIcon({ size }),
+        order: 63,
+        single: true,
+        component: () => createElement(FileTreePanel),
+      })
     }
     syncDirectTab()
     return () => {
       if (disposeBs !== null) disposeBs()
+      if (disposeBsFiles !== null) disposeBsFiles()
       betterSidebarSvc = null
       syncDirectTab()
     }

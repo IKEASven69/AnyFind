@@ -1,6 +1,7 @@
 // src/index.ts
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { extname, isAbsolute, join, resolve as resolve2 } from "node:path";
 
 // node_modules/@deepseek-ai/cosmokit/lib/index.js
 function isNullable(value) {
@@ -1410,8 +1411,8 @@ var Fiber = class {
     let inFlight;
     let removeWrapper = () => false;
     const waitForSetup = () => {
-      setupBarrier ??= new Promise((resolve2, reject) => {
-        resolveSetup = resolve2;
+      setupBarrier ??= new Promise((resolve3, reject) => {
+        resolveSetup = resolve3;
         rejectSetup = reject;
       });
       return setupBarrier;
@@ -1671,16 +1672,16 @@ function Inject(name2, config) {
   };
 }
 (function(Inject2) {
-  function resolve2(inject, result = /* @__PURE__ */ Object.create(null)) {
+  function resolve3(inject, result = /* @__PURE__ */ Object.create(null)) {
     if (!inject) return result;
     if (Array.isArray(inject)) for (const name2 of inject) result[name2] = null;
     else if (Reflect.has(inject, symbols.checkProto)) {
-      Object.assign(result, resolve2(Object.getPrototypeOf(inject)));
+      Object.assign(result, resolve3(Object.getPrototypeOf(inject)));
       for (const name2 of Object.keys(inject)) result[name2] = inject[name2] ?? null;
     } else for (const name2 of Object.keys(inject)) result[name2] = inject[name2] ?? null;
     return result;
   }
-  Inject2.resolve = resolve2;
+  Inject2.resolve = resolve3;
 })(Inject || (Inject = {}));
 var RegistryService = class {
   ctx;
@@ -2240,8 +2241,8 @@ function validateVolatileSchema(schema, path = [], blocked = false, seen = /* @_
   if (schema.inner && (schema.type !== "lazy" || schema.inner[kSchema])) validateVolatileSchema(schema.inner, [...path, "*"], true, seen);
   if (schema.list) for (let index = 0; index < schema.list.length; index++) validateVolatileSchema(schema.list[index], [...path, String(index)], true, seen);
 }
-Schema.extend = function extend(type, resolve2) {
-  resolvers[type] = resolve2;
+Schema.extend = function extend(type, resolve3) {
+  resolvers[type] = resolve3;
 };
 Schema.resolve = function resolve(data, schema, options = {}, strict = false) {
   if (!schema) return [data];
@@ -5302,8 +5303,8 @@ function createRunCodeTool(registry, options) {
         driverRun = (async () => {
           try {
             for (; ; ) {
-              const signal = new Promise((resolve2) => {
-                wake = resolve2;
+              const signal = new Promise((resolve3) => {
+                wake = resolve3;
               });
               const commitHead = commitQueue[0];
               if (commitHead !== void 0 && commitHead.settled) {
@@ -5366,10 +5367,10 @@ function createRunCodeTool(registry, options) {
           signal: runController.signal
         };
         const scheduler = registry[TOOL_RUNTIME_SCHEDULER];
-        const outcome = await new Promise((resolve2, reject) => {
+        const outcome = await new Promise((resolve3, reject) => {
           let parked;
           const settle = (result) => {
-            resolve2(result.isError ? {
+            resolve3(result.isError ? {
               isError: true,
               message: result.error.message
             } : {
@@ -7321,6 +7322,81 @@ async function kernelResume(input) {
     body: JSON.stringify({ agent: input.agent, session_id: input.session_id, cwd: input.cwd ?? void 0, spawn: false })
   }, 1e4);
 }
+async function rawRequest(path, init, timeoutMs) {
+  let res;
+  try {
+    res = await fetch(`${endpoint}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    throw new KernelDownError(`\u7EDF\u4E00\u641C\u7D22\u5185\u6838\u4E0D\u53EF\u8FBE\uFF08${endpoint}\uFF09`, e instanceof Error ? e.message : String(e));
+  }
+  const body = await res.json().catch(() => null);
+  if (body === null) return { status: res.status, body: { error: `HTTP ${res.status}` } };
+  return { status: res.status, body };
+}
+var FILE_GET_PATHS = /* @__PURE__ */ new Set(["/api/file/list", "/api/file/read", "/api/file/stat"]);
+async function kernelFileGet(subpath, query, timeoutMs = 2e4) {
+  if (!FILE_GET_PATHS.has(subpath)) throw new Error(`\u672A\u77E5\u6587\u4EF6\u7AEF\u70B9\uFF1A${subpath}`);
+  return rawRequest(`${subpath}${query}`, { cache: "no-store" }, timeoutMs);
+}
+async function kernelFileOp(body) {
+  return rawRequest("/api/file/op", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+    cache: "no-store"
+  }, 6e4);
+}
+function formatReference(paths) {
+  return paths.map((p) => p.trim()).filter((p) => p !== "").join("\n");
+}
+var TREE_MAX_LINES = 200;
+function buildTreeText(nodes, maxLines = TREE_MAX_LINES) {
+  const cap = Math.max(1, Math.trunc(maxLines));
+  const lines = [];
+  const walk = (children, prefix) => {
+    children.forEach((child, i) => {
+      const last = i === children.length - 1;
+      lines.push(`${prefix}${last ? "\u2514\u2500 " : "\u251C\u2500 "}${child.name}`);
+      if (child.children !== void 0 && child.children.length > 0) {
+        walk(child.children, prefix + (last ? "   " : "\u2502  "));
+      }
+    });
+  };
+  for (const root of nodes) {
+    lines.push(root.name);
+    if (root.children !== void 0 && root.children.length > 0) walk(root.children, "");
+  }
+  if (lines.length <= cap) return lines.join("\n");
+  const head = lines.slice(0, cap - 1);
+  head.push(`\u2026\uFF08\u5DF2\u622A\u65AD\uFF0C\u5171 ${lines.length} \u884C\uFF09`);
+  return head.join("\n");
+}
+var FILE_OPS = ["rename", "copy", "cut", "recycle", "newFile", "newDir"];
+var FILE_OP_MAX_PATHS = 128;
+function validateFileOpRequest(body) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return "\u8BF7\u6C42\u4F53\u5FC5\u987B\u662F JSON \u5BF9\u8C61";
+  const b = body;
+  if (typeof b.op !== "string" || !FILE_OPS.includes(b.op)) {
+    return `op \u4E0D\u652F\u6301\uFF1A${String(b.op)}\uFF08\u53EF\u9009 ${FILE_OPS.join("/")}\uFF09`;
+  }
+  const op = b.op;
+  if (!Array.isArray(b.paths)) return "paths \u5FC5\u987B\u662F\u6570\u7EC4";
+  const paths = b.paths;
+  if (paths.length === 0) return "paths \u4E0D\u80FD\u4E3A\u7A7A";
+  if (paths.length > FILE_OP_MAX_PATHS) return `paths \u8D85\u8FC7\u4E0A\u9650 ${FILE_OP_MAX_PATHS}\uFF08\u5F53\u524D ${paths.length} \u6761\uFF09`;
+  for (const p of paths) {
+    if (typeof p !== "string" || p.trim() === "") return "paths \u5FC5\u987B\u662F\u975E\u7A7A\u7EDD\u5BF9\u8DEF\u5F84\u5B57\u7B26\u4E32";
+  }
+  const target = typeof b.target === "string" ? b.target.trim() : "";
+  const newName = typeof b.newName === "string" ? b.newName.trim() : "";
+  if ((op === "copy" || op === "cut") && target === "") return `${op} \u9700\u8981 target \u76EE\u6807\u76EE\u5F55`;
+  if ((op === "rename" || op === "newFile" || op === "newDir") && newName === "") return `${op} \u9700\u8981 newName`;
+  if ((op === "rename" || op === "newFile" || op === "newDir") && paths.length !== 1) {
+    return `${op} \u53EA\u63A5\u53D7\u5355\u6761 path\uFF08\u5F53\u524D ${paths.length} \u6761\uFF09`;
+  }
+  if (op === "rename" && target === "") return "rename \u9700\u8981 target\uFF08\u6240\u5728\u76EE\u5F55\uFF09";
+  return null;
+}
 function stripMark(text) {
   return text.replace(/<\/?mark>/g, "");
 }
@@ -7464,13 +7540,13 @@ function admitRequest(host, request2, response) {
   }
   return true;
 }
-function readJsonBody(request2) {
-  return new Promise((resolve2, reject) => {
+function readRawBody(request2, maxBytes) {
+  return new Promise((resolve3, reject) => {
     const chunks = [];
     let size = 0;
     request2.on("data", (chunk) => {
       size += chunk.length;
-      if (size > 4096) {
+      if (size > maxBytes) {
         reject(new Error("body too large"));
         request2.destroy();
         return;
@@ -7478,14 +7554,20 @@ function readJsonBody(request2) {
       chunks.push(chunk);
     });
     request2.on("end", () => {
-      try {
-        const raw = Buffer.concat(chunks).toString("utf8").trim();
-        resolve2(raw === "" ? {} : JSON.parse(raw));
-      } catch {
-        reject(new Error("invalid JSON body"));
-      }
+      resolve3(Buffer.concat(chunks).toString("utf8"));
     });
     request2.on("error", reject);
+  });
+}
+function readJsonBody(request2) {
+  return readRawBody(request2, 4096).then((raw) => {
+    const text = raw.trim();
+    if (text === "") return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("invalid JSON body");
+    }
   });
 }
 function proxyCall(response, fn) {
@@ -7501,6 +7583,34 @@ function proxyCall(response, fn) {
       sendJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   );
+}
+function proxyRaw(response, fn) {
+  void fn().then(
+    ({ status, body }) => {
+      sendJson(response, status, body);
+    },
+    (e) => {
+      if (e instanceof KernelDownError) {
+        sendJson(response, 502, { ok: false, down: true, error: e.message, hint: KERNEL_DOWN_HINT, endpoint: getEndpoint() });
+        return;
+      }
+      sendJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  );
+}
+var PREVIEW_MAX_BYTES = 64 * 1024 * 1024;
+var OFFICE_MAX_INPUT_BYTES = 52428800;
+var OFFICE_EXTS = /* @__PURE__ */ new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
+function errnoOf(e) {
+  return typeof e === "object" && e !== null && "code" in e ? String(e.code) : "";
+}
+function sendBinary(response, contentType, buf) {
+  response.writeHead(200, {
+    "content-type": contentType,
+    "content-length": String(buf.byteLength),
+    "cache-control": "no-store"
+  });
+  response.end(buf);
 }
 function registerRoutes(ctx, host) {
   return [
@@ -7583,6 +7693,156 @@ function registerRoutes(ctx, host) {
           }
         );
       }
+    }),
+    // 文件端点（契约 v0.2）：query 原样转发，参数与响应结构同内核。
+    ...["list", "read", "stat"].map((name2) => host.webServer.register({
+      kind: "exact",
+      path: `/dsh-anyfind/api/file/${name2}`,
+      handler: (request2, response) => {
+        if (!admitRequest(host, request2, response)) return;
+        const rawUrl = request2.url ?? "/";
+        const query = rawUrl.includes("?") ? rawUrl.slice(rawUrl.indexOf("?")) : "";
+        proxyRaw(response, () => kernelFileGet(`/api/file/${name2}`, query));
+      }
+    })),
+    host.webServer.register({
+      kind: "exact",
+      path: "/dsh-anyfind/api/file/op",
+      handler: (request2, response) => {
+        if (!admitRequest(host, request2, response)) return;
+        if (request2.method !== "POST") {
+          response.writeHead(405, { allow: "POST" });
+          response.end();
+          return;
+        }
+        readRawBody(request2, 256 * 1024).then(
+          (raw) => {
+            proxyRaw(response, () => kernelFileOp(raw));
+          },
+          (e) => {
+            sendJson(response, 400, { error: e instanceof Error ? e.message : String(e) });
+          }
+        );
+      }
+    }),
+    // 预览字节端点（面板专用）：3D/压缩包/字体/图片等二进制预览取原始字节，
+    // 不走内核契约（file/read 对含 NUL 文件回 binary:true 无 content）。
+    host.webServer.register({
+      kind: "exact",
+      path: "/dsh-anyfind/api/file/bytes",
+      handler: (request2, response) => {
+        if (!admitRequest(host, request2, response)) return;
+        const url = new URL(request2.url ?? "/", "http://localhost");
+        const target = url.searchParams.get("path") ?? "";
+        if (target === "" || !isAbsolute(target)) {
+          sendJson(response, 400, { error: "path \u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84" });
+          return;
+        }
+        void (async () => {
+          const info = await stat(target);
+          if (!info.isFile()) {
+            sendJson(response, 400, { error: "\u4E0D\u662F\u666E\u901A\u6587\u4EF6" });
+            return;
+          }
+          if (info.size > PREVIEW_MAX_BYTES) {
+            sendJson(response, 413, { error: `\u6587\u4EF6\u8D85\u8FC7\u9884\u89C8\u4E0A\u9650 ${PREVIEW_MAX_BYTES} \u5B57\u8282` });
+            return;
+          }
+          sendBinary(response, "application/octet-stream", await readFile(target));
+        })().catch((e) => {
+          const code = errnoOf(e);
+          if (code === "ENOENT") {
+            sendJson(response, 404, { error: "\u6587\u4EF6\u4E0D\u5B58\u5728" });
+            return;
+          }
+          if (code === "EACCES" || code === "EPERM") {
+            sendJson(response, 403, { error: "\u6CA1\u6709\u8BFB\u53D6\u6743\u9650" });
+            return;
+          }
+          sendJson(response, 500, { error: e instanceof Error ? e.message : String(e) });
+        });
+      }
+    }),
+    // office→PDF（dsh officeToPdf/officeKit 转换预览）：能力缺席 → 503，
+    // 面板降级「用系统应用打开（复制路径）」。
+    host.webServer.register({
+      kind: "exact",
+      path: "/dsh-anyfind/api/office/pdf",
+      handler: (request2, response) => {
+        if (!admitRequest(host, request2, response)) return;
+        const url = new URL(request2.url ?? "/", "http://localhost");
+        const target = url.searchParams.get("path") ?? "";
+        if (target === "" || !isAbsolute(target)) {
+          sendJson(response, 400, { error: "path \u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84" });
+          return;
+        }
+        const ext = extname(target).slice(1).toLowerCase();
+        if (!OFFICE_EXTS.has(ext)) {
+          sendJson(response, 400, { error: `\u4E0D\u652F\u6301\u7684 office \u7C7B\u578B .${ext}\uFF08\u652F\u6301 ${[...OFFICE_EXTS].join("/")}\uFF09` });
+          return;
+        }
+        const kit = host.get("officeKit");
+        if (kit === void 0 || typeof kit.convert !== "function") {
+          sendJson(response, 503, { error: "officeToPdf \u80FD\u529B\u4E0D\u53EF\u7528\uFF08dsh officeKit \u672A\u6302\u8F7D\uFF09", code: "unavailable" });
+          return;
+        }
+        void (async () => {
+          const info = await stat(target);
+          if (!info.isFile()) {
+            sendJson(response, 400, { error: "\u4E0D\u662F\u666E\u901A\u6587\u4EF6" });
+            return;
+          }
+          if (info.size > OFFICE_MAX_INPUT_BYTES) {
+            sendJson(response, 413, { error: `Office \u6587\u4EF6\u8D85\u8FC7\u8F6C\u6362\u4E0A\u9650 ${OFFICE_MAX_INPUT_BYTES} \u5B57\u8282` });
+            return;
+          }
+          const abs = resolve2(target);
+          const version2 = `${info.mtimeMs}:${info.size}`;
+          const source = {
+            // OfficeSourceKey 品牌在运行时是恒等函数（dsh-brand brandString），此处直接编码。
+            key: JSON.stringify(["dsh-anyfind", abs]),
+            version: version2,
+            bytes: info.size,
+            async read(signal, maxBytes) {
+              const cur = await stat(abs);
+              if (cur.size !== info.size || cur.mtimeMs !== info.mtimeMs) {
+                throw Object.assign(new Error("\u6E90\u6587\u4EF6\u5728\u8F6C\u6362\u671F\u95F4\u53D1\u751F\u53D8\u5316"), { code: "source-changed" });
+              }
+              if (cur.size > maxBytes) {
+                throw Object.assign(new Error("\u6E90\u6587\u4EF6\u8D85\u8FC7\u8F6C\u6362\u9884\u7559\u5BB9\u91CF"), { code: "input-too-large" });
+              }
+              const bytes = await readFile(abs);
+              return { bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), version: version2 };
+            }
+          };
+          const result = await kit.convert({ extension: ext, priority: "foreground", source });
+          sendBinary(response, "application/pdf", Buffer.from(result.pdf));
+        })().catch((e) => {
+          const code = errnoOf(e);
+          const msg = e instanceof Error ? e.message : String(e);
+          if (code === "ENOENT") {
+            sendJson(response, 404, { error: "\u6587\u4EF6\u4E0D\u5B58\u5728" });
+            return;
+          }
+          if (code === "EACCES" || code === "EPERM") {
+            sendJson(response, 403, { error: "\u6CA1\u6709\u8BFB\u53D6\u6743\u9650" });
+            return;
+          }
+          if (code === "unavailable" || code === "busy") {
+            sendJson(response, 503, { error: msg, code });
+            return;
+          }
+          if (code === "input-too-large" || code === "output-too-large") {
+            sendJson(response, 413, { error: msg, code });
+            return;
+          }
+          if (["invalid-document", "unsupported-format", "invalid-output", "invalid-request", "source-changed"].includes(code)) {
+            sendJson(response, 422, { error: msg, code });
+            return;
+          }
+          sendJson(response, 500, { error: msg });
+        });
+      }
     })
   ];
 }
@@ -7624,9 +7884,15 @@ function apply(ctx, config) {
   });
 }
 export {
+  FILE_OPS,
+  FILE_OP_MAX_PATHS,
+  TREE_MAX_LINES,
   apply,
+  buildTreeText,
   discoverEndpoint,
+  formatReference,
   name,
-  runSearch
+  runSearch,
+  validateFileOpRequest
 };
 //# sourceMappingURL=index.js.map

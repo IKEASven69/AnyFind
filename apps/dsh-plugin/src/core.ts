@@ -135,6 +135,209 @@ export async function kernelResume(input: { agent: string; session_id: string; c
 }
 
 // ---------------------------------------------------------------------------
+// 文件端点（契约 v0.2，docs/api-contract.md「文件端点」组）：
+// 代理层只做状态码 + 响应体的原样透传，参数语义（钳制/校验/404/413/501）
+// 完全由内核解析——这里不复刻内核规则，避免两边判断漂移。
+// ---------------------------------------------------------------------------
+
+/** 契约：GET /api/file/list 200 条目（mtime 为本地时区 ISO 串，取不到 null）。 */
+export interface FileEntry {
+  name: string
+  is_dir: boolean
+  size: number
+  mtime: string | null
+}
+
+/** 契约：GET /api/file/list 200 响应。 */
+export interface FileListResponse {
+  path: string
+  entries: FileEntry[]
+  truncated: boolean
+}
+
+/** 契约：GET /api/file/stat 200 响应。 */
+export interface FileStatResponse {
+  name: string
+  is_dir: boolean
+  size: number
+  mtime: string | null
+}
+
+/** 契约：GET /api/file/read 200 响应（binary:true 时无 content 等字段）。 */
+export interface FileReadResponse {
+  binary: boolean
+  content?: string
+  totalLines?: number
+  offset?: number
+  lines?: number
+  truncated?: boolean
+  /** 契约 v0.2 补丁：format=base64 时返回 {content_base64, binary, truncated}（≤2MB 整文件；文本与二进制通用），内核不回 size。 */
+  content_base64?: string
+}
+
+/** 契约：POST /api/file/op 200 单项结果（项级失败仍是 200 + ok:false）。 */
+export interface FileOpResult {
+  path: string
+  ok: boolean
+  error?: string
+}
+
+/** 契约：POST /api/file/op 200 响应。 */
+export interface FileOpResponse {
+  ok: boolean
+  results: FileOpResult[]
+}
+
+/** 内核原始回包：状态码与体原样带回（400/404/413/501 不改写）。 */
+export interface RawResponse {
+  status: number
+  body: unknown
+}
+
+/** 只在网络层失败时抛 KernelDownError；HTTP 错误状态按原样返回。 */
+async function rawRequest(path: string, init: RequestInit, timeoutMs: number): Promise<RawResponse> {
+  let res: Response
+  try {
+    res = await fetch(`${endpoint}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+  } catch (e) {
+    throw new KernelDownError(`统一搜索内核不可达（${endpoint}）`, e instanceof Error ? e.message : String(e))
+  }
+  const body: unknown = await res.json().catch(() => null)
+  if (body === null) return { status: res.status, body: { error: `HTTP ${res.status}` } }
+  return { status: res.status, body }
+}
+
+const FILE_GET_PATHS = new Set(['/api/file/list', '/api/file/read', '/api/file/stat'])
+
+/**
+ * 文件 GET 三端点透传：`query` 是浏览器原始 query 串（含 `?`），
+ * 原样拼给内核——max/noise/offset/lines 的钳制与越界语义以内核为准。
+ */
+export async function kernelFileGet(subpath: string, query: string, timeoutMs = 20000): Promise<RawResponse> {
+  if (!FILE_GET_PATHS.has(subpath)) throw new Error(`未知文件端点：${subpath}`)
+  return rawRequest(`${subpath}${query}`, { cache: 'no-store' }, timeoutMs)
+}
+
+/**
+ * POST /api/file/op 透传：`body` 为浏览器原始请求体（不解析不改写），
+ * 非法 JSON / op 不支持 / paths 超 128 等由内核按契约回 4xx。
+ */
+export async function kernelFileOp(body: string): Promise<RawResponse> {
+  return rawRequest('/api/file/op', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+    cache: 'no-store',
+  }, 60000)
+}
+
+// ---------------------------------------------------------------------------
+// 引用文本 / 目录树文本（纯函数：浏览器半与 selftest 共用，零 DOM 依赖）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「引用」写进输入框的文本：非空路径按行拼接（单条即原样返回）。
+ * 输入框侧的换行胶水（末尾无换行时补一个 \n）由 bridge 负责，这里只管内容。
+ */
+export function formatReference(paths: readonly string[]): string {
+  return paths.map((p) => p.trim()).filter((p) => p !== '').join('\n')
+}
+
+/** 目录树节点：拖拽目录生成 ├─└─│ 文本树的输入（children 缺省=文件）。 */
+export interface PreviewTreeNode {
+  name: string
+  children?: readonly PreviewTreeNode[]
+}
+
+/** 文本树行数上限（任务约定 ≤200 行；超出截断并附说明行）。 */
+export const TREE_MAX_LINES = 200
+
+/**
+ * 目录树 → ├─└─│ 文本：
+ * ```
+ * D:\dir
+ * ├─ a.txt
+ * └─ sub
+ *     ├─ b.txt
+ *     └─ c.txt
+ * ```
+ * 超过 `maxLines`（默认 200）时保留前 maxLines-1 行 + 1 行截断说明。
+ */
+export function buildTreeText(nodes: readonly PreviewTreeNode[], maxLines: number = TREE_MAX_LINES): string {
+  const cap = Math.max(1, Math.trunc(maxLines))
+  const lines: string[] = []
+  const walk = (children: readonly PreviewTreeNode[], prefix: string): void => {
+    children.forEach((child, i) => {
+      const last = i === children.length - 1
+      lines.push(`${prefix}${last ? '└─ ' : '├─ '}${child.name}`)
+      if (child.children !== undefined && child.children.length > 0) {
+        walk(child.children, prefix + (last ? '   ' : '│  '))
+      }
+    })
+  }
+  for (const root of nodes) {
+    lines.push(root.name)
+    if (root.children !== undefined && root.children.length > 0) walk(root.children, '')
+  }
+  if (lines.length <= cap) return lines.join('\n')
+  const head = lines.slice(0, cap - 1)
+  head.push(`…（已截断，共 ${lines.length} 行）`)
+  return head.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// 文件写操作请求校验（纯函数）：客户端提交前预检 + selftest 断言。
+// 规则与契约 v0.2 /api/file/op 的 4xx 判定同源（op 白名单 / paths 1..128 /
+// copy·cut 缺 target / rename·newFile·newDir 缺 newName / 单条约束）。
+// 代理层仍按「参数与响应结构同内核」原样转发，这里只做发请求前的友好提示。
+// ---------------------------------------------------------------------------
+
+/** 契约：POST /api/file/op 的 op 白名单。 */
+export const FILE_OPS = ['rename', 'copy', 'cut', 'recycle', 'newFile', 'newDir'] as const
+
+export type FileOp = (typeof FILE_OPS)[number]
+
+/** 契约：paths 上限（超出 → 400）。 */
+export const FILE_OP_MAX_PATHS = 128
+
+/** 契约：POST /api/file/op 请求体。 */
+export interface FileOpRequest {
+  op: FileOp
+  paths: string[]
+  target?: string
+  newName?: string
+}
+
+/**
+ * 校验 file/op 请求体：通过返回 null，否则返回错误文案（与内核 400 {error} 同形）。
+ * @param body - 待校验请求体（任意 unknown）
+ */
+export function validateFileOpRequest(body: unknown): string | null {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return '请求体必须是 JSON 对象'
+  const b = body as Record<string, unknown>
+  if (typeof b.op !== 'string' || !(FILE_OPS as readonly string[]).includes(b.op)) {
+    return `op 不支持：${String(b.op)}（可选 ${FILE_OPS.join('/')}）`
+  }
+  const op = b.op as FileOp
+  if (!Array.isArray(b.paths)) return 'paths 必须是数组'
+  const paths = b.paths as unknown[]
+  if (paths.length === 0) return 'paths 不能为空'
+  if (paths.length > FILE_OP_MAX_PATHS) return `paths 超过上限 ${FILE_OP_MAX_PATHS}（当前 ${paths.length} 条）`
+  for (const p of paths) {
+    if (typeof p !== 'string' || p.trim() === '') return 'paths 必须是非空绝对路径字符串'
+  }
+  const target = typeof b.target === 'string' ? b.target.trim() : ''
+  const newName = typeof b.newName === 'string' ? b.newName.trim() : ''
+  if ((op === 'copy' || op === 'cut') && target === '') return `${op} 需要 target 目标目录`
+  if ((op === 'rename' || op === 'newFile' || op === 'newDir') && newName === '') return `${op} 需要 newName`
+  if ((op === 'rename' || op === 'newFile' || op === 'newDir') && paths.length !== 1) {
+    return `${op} 只接受单条 path（当前 ${paths.length} 条）`
+  }
+  if (op === 'rename' && target === '') return 'rename 需要 target（所在目录）'
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // 结果格式化（工具 / 斜杠命令共用）
 // ---------------------------------------------------------------------------
 

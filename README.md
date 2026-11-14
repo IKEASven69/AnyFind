@@ -31,6 +31,23 @@ apps/dsh-plugin     dsh-anyfind 插件：/anyfind 斜杠命令 + anyfind_search 
 
 查询 DSL（v1）：裸词 AND、`"短语"`、`OR`、`-排除`、`kind:file|content|session|skill|memory`、`agent:claude-code|codex|dsh|opencode|pi|cursor`、`project:`、`ext:`、`size:`、`date:`、`in:`、`role:user|assistant`。
 
+## 文件工作台（0.2.0 新增）
+
+搜索之外，0.2.0 吸收了一套文件浏览与轻量管理能力。桌面端（Tauri 壳）与 dsh 插件端共用同一组内核端点 `/api/file/{list,read,stat,op}`（契约 v0.2，见 `docs/api-contract.md`）；预览库 vendor 自 [tm5452/dsh-workspace-explorer](https://github.com/tm5452/dsh-workspace-explorer)（MIT，署名随附于各 vendor 目录的 `LICENSE-preview-extra` / `VENDORED.md`，吸收评估见 `docs/ABSORPTION-PLAN.md`）。
+
+- **目录树**：懒加载——展开目录时才拉取 `/api/file/list`（默认 500 条上限，截断有提示）；噪声目录默认过滤（`.git` `node_modules` `dist` `build` `coverage` `.idea` `target`，可切换显示）；目录优先、名称排序。dsh 插件端目录树与浮层「文件」视图、betterSidebar「文件」tab 共享同一 store（标签 / 展开 / 选中 / 缓存互通）
+- **多标签**：新建 / 关闭 / 切换 / 拖拽排序，纯客户端零请求
+- **预览**：
+  - 文本分页：默认 30 行，30/60/120 档切换（内核窗口钳制 1..500 行）；前 8KB 含 NUL 判定二进制
+  - 图片：`/api/file/read?format=base64` 字节通路（内核整文件 ≤2MB 上限，超限 413）拼 data URL；插件侧 ≤1MB 内联，超限或取不到字节降级「用系统应用打开」
+  - PDF：本地 pdfjs 渲染（桌面端自带 `ui/vendor/pdfjs`；插件端 pdfjs-dist 随 bundle 打包）
+  - 富格式：3D 模型（STL / PLY / OBJ / glTF）、压缩包（zip / tar / gz / bz2 / xz / zst / 7z / rar）、TOML / Intel HEX / JCAMP-DX / VCD 波形 / KiCad / DFU。插件端用上游 React 正文组件；桌面端为自研原生 JS 接入层，正文是结构化摘要级（3D 渲染与压缩包列举除外），弱于插件端
+  - Office（doc/docx/xls/xlsx/ppt/pptx）：仅插件端，经宿主 officeKit 转 PDF 后走 pdfjs；能力缺席（503）或转换失败降级「用系统应用打开」
+  - 二进制文件：占位提示，不做文本预览
+- **写操作**：树节点 / 结果行右键菜单——重命名、复制路径、删除（移入回收站，非永久删除）、新建文件 / 新建文件夹；破坏性操作二次确认；Ctrl 点选批量 ≤128，超限提示。内核 `/api/file/op` 契约另支持 `copy`（复制到目录）与 `cut`（移动）两种 op，**目前桌面与插件 UI 都没有暴露这两个入口**——已知未完成项
+- **引用链路**（dsh 插件端）：会话头胶囊按钮（`conversation.session.header.utilities`）呼出浮层，并把当前会话输入框（`inputActions.setDraft`）桥进模块级 store；结果行「引用」按钮把路径引用追加进输入框，无桥时降级为复制路径；`@` 触发源（宿主 `inputTriggers` 服务，依赖 0.2.1-rc.5 客户端包）搜出路径候选回填 reference；条目可拖拽进输入框（`application/x-anyfind-file` MIME），目录落框生成 `├─└─│` 文本树（≤200 行，懒加载深度 4 / 节点 300 双上限）
+- **宿主兼容**：betterSidebar / sidebarRightTabs 服务存在时注册「搜索」（呼出浮层）与「文件」（完整文件树）两个 tab；服务缺席时优雅跳过，不影响插件其余功能
+
 ## 安装
 
 - **桌面（人用）**：Releases 下载安装包（Tauri NSIS）；或源码构建 `scripts/build-release.ps1`

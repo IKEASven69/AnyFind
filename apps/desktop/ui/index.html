@@ -426,6 +426,7 @@
   .pv-fallback .pf-btns { display: flex; gap: 8px; margin-top: 2px; flex-wrap: wrap; justify-content: center; }
   .pdf-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 6px 0 20px; }
   .pdf-wrap canvas { max-width: 100%; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.4); background: #fff; }
+  img.pv-img { display: block; max-width: 100%; max-height: calc(100vh - 220px); margin: 8px auto; border-radius: 8px; object-fit: contain; }
   /* 右键菜单 */
   #ctx {
     position: fixed; z-index: 70; min-width: 184px; max-width: 320px; padding: 5px;
@@ -721,13 +722,23 @@ function fetchWithTimeout(url, opts, ms) {
 }
 const KERNEL_TIMEOUT_MS = 30000;
 
+/* 非 2xx：优先透出内核契约 {error} 文案（如「文件超过 2MB」「拒绝操作根目录」），
+   体不可读/无 error 时回退裸状态码；2xx 原样返回 JSON。 */
+async function kernelResp(r) {
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) {
+    throw new Error(data && data.error ? String(data.error) : ("HTTP " + r.status));
+  }
+  return data;
+}
+
 async function kernelGet(path) {
   if (window.__ffStats) window.__ffStats.calls.push(["GET", path]);
   if (FF.mock) return mockRoute("GET", path);
   if (invoke) return JSON.parse(await withTimeout(invoke("kernel_get", { path }), KERNEL_TIMEOUT_MS, "内核请求"));
   const r = await fetchWithTimeout(kernelBase() + path, null, KERNEL_TIMEOUT_MS);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.json();
+  return kernelResp(r);
 }
 async function kernelPost(path, body) {
   if (window.__ffStats) window.__ffStats.calls.push(["POST", path]);
@@ -736,8 +747,7 @@ async function kernelPost(path, body) {
   const r = await fetchWithTimeout(kernelBase() + path, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   }, KERNEL_TIMEOUT_MS);
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  return r.json();
+  return kernelResp(r);
 }
 
 async function apiHealth() {
@@ -765,6 +775,17 @@ async function apiFileRead(path, offset, lines) {
   if (lines != null) params.set("lines", String(lines));
   return kernelGet("/api/file/read?" + params);
 }
+/** 取字节通路（契约 v0.2 format=base64）：≤2MB 整文件 base64，文本与二进制通用。 */
+async function apiFileBase64(path) {
+  return kernelGet("/api/file/read?" + new URLSearchParams({ path, format: "base64" }));
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+const IMG_MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", ico: "image/x-icon" };
 async function apiFileStat(path) {
   return kernelGet("/api/file/stat?" + new URLSearchParams({ path }));
 }
@@ -1411,10 +1432,17 @@ async function openPreview(h) {
 }
 function closePreview() {
   const t = activeTab();
-  if (t) { t.preview = null; t.history = []; t.histIdx = -1; }
+  if (t) { destroyRich(t.preview); t.preview = null; t.history = []; t.histIdx = -1; }
   FF.session = null;
   $("preview").classList.remove("open");
   $("q").focus();
+}
+/** 富预览句柄销毁（vendor/preview/rich.js 的 3D 视图等持有 raf/监听器，必须显式释放）。 */
+function destroyRich(st) {
+  if (st && st.richHandle && typeof st.richHandle.dispose === "function") {
+    try { st.richHandle.dispose(); } catch (e) {}
+  }
+  if (st) st.richHandle = null;
 }
 
 async function resumeSession(h) {
@@ -2120,6 +2148,7 @@ $("results-wrap").addEventListener("contextmenu", e => {
 function pushPreview(st) {
   const t = activeTab();
   if (!t) return;
+  destroyRich(t.preview);
   const keep = (t.histIdx == null ? -1 : t.histIdx) + 1;
   t.history = (t.history || []).slice(0, keep);
   t.history.push(st);
@@ -2129,6 +2158,7 @@ function pushPreview(st) {
 function backPreview() {
   const t = activeTab();
   if (!t || !(t.histIdx > 0)) return;
+  destroyRich(t.preview);
   t.histIdx--;
   const st = t.history[t.histIdx];
   t.preview = st;
@@ -2209,8 +2239,9 @@ function renderPreviewState(st) {
     return;
   }
   if (st.kind === "image") {
-    body.innerHTML = fallbackHTML("&#x1F5BC;&#xFE0F;",
-      "图片预览暂不可用：内核文件契约 v0.2 未提供二进制内容端点（file/read 仅文本），已降级为「用系统打开」。", st.path);
+    if (st.error) { body.innerHTML = fallbackHTML("&#x1F5BC;&#xFE0F;", "图片预览不可用：" + st.error, st.path); return; }
+    if (st.imgSrc) { body.innerHTML = `<img class="pv-img" src="${st.imgSrc}" alt="">`; return; }
+    body.innerHTML = '<div class="empty">加载中…</div>';
     return;
   }
   if (st.kind === "pdf") {
@@ -2218,6 +2249,22 @@ function renderPreviewState(st) {
     if (!st.pdfDoc) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
     body.innerHTML = '<div class="pdf-wrap"><canvas></canvas></div>';
     renderPdfPage(st);
+    return;
+  }
+  if (st.kind === "rich") {
+    if (st.error) { body.innerHTML = fallbackHTML("&#x1F9E9;", "富格式预览不可用：" + st.error, st.path); return; }
+    if (st.loading || !st.richBytes) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
+    destroyRich(st);
+    const wrap = document.createElement("div");
+    body.innerHTML = "";
+    body.appendChild(wrap);
+    const kind = st.richKind;
+    window.RichPreview.mount(wrap, kind, st).then((dispose) => {
+      st.richHandle = { dispose };
+    }).catch((e) => {
+      wrap.innerHTML = "";
+      wrap.textContent = "富格式预览失败：" + (e && e.message ? e.message : String(e));
+    });
     return;
   }
 }
@@ -2243,7 +2290,10 @@ async function openFilePreview(path, title) {
   let kind = "text";
   if (ext === "pdf") kind = "pdf";
   else if (IMG_EXTS.has(ext)) kind = "image";
-  const st = { kind, path, title: title || basename(path), offset: 0, lines: 30, page: 1,
+  // 富格式（vendor/preview/rich.js：3D/压缩包/TOML/固件/波形/KiCad）优先于文本预览。
+  const richKind = window.RichPreview ? window.RichPreview.extKind(ext) : null;
+  if (richKind) kind = "rich";
+  const st = { kind, richKind, path, title: title || basename(path), offset: 0, lines: 30, page: 1,
                data: null, stat: null, loading: true, error: null };
   pushPreview(st);
   FF.session = null;
@@ -2251,7 +2301,40 @@ async function openFilePreview(path, title) {
   try { st.stat = await apiFileStat(path); } catch (e) { st.stat = null; }
   if (kind === "text") await loadTextPage(st);
   else if (kind === "pdf") await ensurePdf(st);
-  else { st.loading = false; renderIfActive(st); }
+  else if (kind === "rich") await loadRichPreview(st);
+  else await loadImage(st);
+}
+/** 富预览取字节：内核 format=base64（≤2MB）→ Tauri convertFileSrc 后备（rich.js 内实现）。 */
+async function loadRichPreview(st) {
+  st.loading = true;
+  st.error = null;
+  renderIfActive(st);
+  try {
+    st.richBytes = await loadPdfBytes(st.path);
+    st.loading = false;
+  } catch (e) {
+    st.loading = false;
+    st.richBytes = null;
+    st.error = e && e.message ? e.message : String(e);
+  }
+  renderIfActive(st);
+}
+/** 图片预览：format=base64 → data URL；>2MB（413）降级「用系统打开」。 */
+async function loadImage(st) {
+  st.loading = true;
+  st.error = null;
+  renderIfActive(st);
+  try {
+    const d = await apiFileBase64(st.path);
+    const mime = IMG_MIME[extOf(st.path)] || "application/octet-stream";
+    st.imgSrc = "data:" + mime + ";base64," + d.content_base64;
+    st.loading = false;
+  } catch (e) {
+    st.loading = false;
+    st.imgSrc = null;
+    st.error = e && e.message ? e.message : String(e);
+  }
+  renderIfActive(st);
 }
 let pdfjsLoading = null;
 function loadPdfJs() {
@@ -2273,14 +2356,18 @@ function loadPdfJs() {
   return pdfjsLoading;
 }
 async function loadPdfBytes(path) {
-  // 契约 v0.2 无原始字节端点；尽力走 Tauri asset 协议（壳未启用时失败并降级）
+  // 首选内核取字节通路（契约 v0.2 format=base64，≤2MB）；asset 协议仅作后备。
+  try {
+    const d = await apiFileBase64(path);
+    if (d && d.content_base64) return b64ToBytes(d.content_base64).buffer;
+  } catch (e) {}
   if (T && T.core && typeof T.core.convertFileSrc === "function") {
     try {
       const r = await fetch(T.core.convertFileSrc(path));
       if (r.ok) return await r.arrayBuffer();
     } catch (e) {}
   }
-  throw new Error("无法获取文件字节：内核契约 v0.2 未提供原始字节端点，壳亦未启用 asset 协议");
+  throw new Error("无法获取文件字节（>2MB 走 base64 会被 413；可点「打开」用系统阅读器查看）");
 }
 async function ensurePdf(st) {
   if (st.pdfDoc || st.pdfError || st.pdfStarted) return;
@@ -2538,5 +2625,7 @@ renderTree();
   });
 })();
 </script>
+<!-- 富格式预览接入层（vendor 解析层 + rich.js，见 vendor/preview/VENDORED.md）：ES module，deferred -->
+<script type="module" src="vendor/preview/rich.js"></script>
 </body>
 </html>

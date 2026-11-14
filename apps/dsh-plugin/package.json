@@ -1,7 +1,7 @@
 {
   "name": "dsh-anyfind",
   "description": "AnyFind 接入 dsh：Ctrl+K 全局搜索 + agent 工具 anyfind_search + 斜杠命令 /anyfind",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -16,7 +16,9 @@
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
-    "scripts"
+    "scripts",
+    "src/vendor/LICENSE-preview-extra",
+    "src/vendor/VENDORED.md"
   ],
   "license": "MIT",
   "scripts": {
@@ -31,7 +33,9 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar-right"
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-input-trigger"
       ],
       "platform": "web"
     }
@@ -50,7 +54,9 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "0.2.1-rc.5",
     "@deepseek-ai/dsh-client-ui-layout": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
     "@deepseek-ai/dsh-host-webserver": "0.2.0-rc.2",
@@ -58,6 +64,7 @@
     "@types/node": "^26.6.3",
     "@types/react": "~19.3.0",
     "esbuild": "^0.28.2",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.3.0",
     "typescript": "^7.0.2"
   }

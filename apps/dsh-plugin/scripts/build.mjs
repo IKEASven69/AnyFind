@@ -44,14 +44,17 @@ const result = await build({
 })
 
 const code = result.outputFiles[0].text
+// react 自由变量注入：src/vendor/**（dsh-workspace-explorer vendor，见 src/vendor/VENDORED.md）
+// 模块顶层用 `react.createElement`，需在工厂作用域提供 react（上游 build-client.mjs 同型）。
 const wrapped = `window.__ModuleLoader__.load({
-\tid: "dsh-anyfind",
-\tfactory: (require) => {
-\t\tvar module = { exports: {} };
-\t\tvar exports = module.exports;
+	id: "dsh-anyfind",
+	factory: (require) => {
+		var react = require("react");
+		var module = { exports: {} };
+		var exports = module.exports;
 ${code.replace(/^/gm, '\t\t')}
-\t\treturn module.exports;
-\t}
+		return module.exports;
+	}
 });
 `
 writeFileSync(join(LIB, 'client.js'), wrapped, 'utf8')

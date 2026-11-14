@@ -6,6 +6,7 @@ pub mod adapters;
 pub mod agent_files;
 pub mod db;
 pub mod dsl;
+pub mod file_ops;
 pub mod message;
 pub mod paths;
 pub mod resume;

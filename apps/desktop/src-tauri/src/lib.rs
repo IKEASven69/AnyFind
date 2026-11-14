@@ -419,6 +419,58 @@ mod storage_tests {
     }
 }
 
+#[cfg(test)]
+mod kernel_error_text_tests {
+    use super::kernel_error_text;
+
+    /// 内核回 4xx/5xx + 契约 `{error}` 体 → 桌面端应透出文案而非裸状态码。
+    #[test]
+    fn status_error_extracts_contract_error_body() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let body = "{\"error\":\"文件超过 2MB（3145728 字节），无法预览\"}";
+        let response = format!(
+            "HTTP/1.1 413 Payload Too Large\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.as_bytes().len(),
+            body
+        );
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 2048];
+            let _ = sock.read(&mut buf);
+            sock.write_all(response.as_bytes()).unwrap();
+        });
+        let err = ureq::get(&format!("http://{addr}/api/file/read"))
+            .timeout(std::time::Duration::from_secs(5))
+            .call()
+            .err()
+            .expect("非 2xx 响应应为 Err(Error::Status)");
+        let text = kernel_error_text(err);
+        assert!(
+            text.contains("文件超过 2MB"),
+            "应透出内核契约错误文案，实际: {text}"
+        );
+        server.join().unwrap();
+    }
+
+    /// 传输层错误（连接拒绝）保持「内核请求失败」前缀。
+    #[test]
+    fn transport_error_keeps_prefix() {
+        // 选用大概率无监听的回环端口制造连接拒绝
+        let guard = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = guard.local_addr().unwrap();
+        drop(guard);
+        let err = ureq::get(&format!("http://{addr}/api/health"))
+            .timeout(std::time::Duration::from_secs(2))
+            .call()
+            .err()
+            .expect("无监听端口应为 Err");
+        let text = kernel_error_text(err);
+        assert!(text.starts_with("内核请求失败"), "实际: {text}");
+    }
+}
+
 fn set_data_dir_blocking(path: String) -> Result<Value, String> {
     let base = kernel_base();
     let Some(port) = local_kernel_port(&base) else {
@@ -491,17 +543,42 @@ async fn set_data_dir(path: String) -> Result<Value, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// ureq 错误 → 展示文案。HTTP 错误状态（4xx/5xx）读出内核契约 `{error}` 体，
+/// 桌面端才能看到「文件超过 2MB」「拒绝操作根目录」这类文案而非裸状态码；
+/// 体不可读/无 error 时回退 `内核返回错误（HTTP <code>）`；传输层错误保持原样。
+fn kernel_error_text(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(code, resp) => {
+            let body = resp.into_string().unwrap_or_default();
+            serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| {
+                    v.get("error")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.trim().to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("内核返回错误（HTTP {code}）"))
+        }
+        other => format!("内核请求失败: {other}"),
+    }
+}
+
 fn http_get(path: &str) -> Result<String, String> {
     let url = format!("{}{}", kernel_base(), path);
     let t0 = std::time::Instant::now();
     eprintln!("[kernel_get] → {}", url);
-    let resp = ureq::get(&url)
+    let resp = match ureq::get(&url)
         .timeout(std::time::Duration::from_secs(30))
         .call()
-        .map_err(|e| {
-            eprintln!("[kernel_get] ✗ {} ({:?}): {}", url, t0.elapsed(), e);
-            format!("内核请求失败: {}", e)
-        })?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = kernel_error_text(e);
+            eprintln!("[kernel_get] ✗ {} ({:?}): {}", url, t0.elapsed(), msg);
+            return Err(msg);
+        }
+    };
     let body = resp.into_string().map_err(|e| e.to_string())?;
     eprintln!(
         "[kernel_get] ✓ {} ({:?}, {} bytes)",
@@ -516,13 +593,17 @@ fn http_post(path: &str, body: Value) -> Result<String, String> {
     let url = format!("{}{}", kernel_base(), path);
     let t0 = std::time::Instant::now();
     eprintln!("[kernel_post] → {}", url);
-    let resp = ureq::post(&url)
+    let resp = match ureq::post(&url)
         .timeout(std::time::Duration::from_secs(30))
         .send_json(body)
-        .map_err(|e| {
-            eprintln!("[kernel_post] ✗ {} ({:?}): {}", url, t0.elapsed(), e);
-            format!("内核请求失败: {}", e)
-        })?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = kernel_error_text(e);
+            eprintln!("[kernel_post] ✗ {} ({:?}): {}", url, t0.elapsed(), msg);
+            return Err(msg);
+        }
+    };
     let body = resp.into_string().map_err(|e| e.to_string())?;
     eprintln!(
         "[kernel_post] ✓ {} ({:?}, {} bytes)",
