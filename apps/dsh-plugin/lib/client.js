@@ -85927,6 +85927,10 @@ window.__ModuleLoader__.load({
 		    let disposeBs = null;
 		    let disposeBsFiles = null;
 		    if (betterSidebarSvc !== null) {
+		      if (disposeDirectTab !== null) {
+		        disposeDirectTab();
+		        disposeDirectTab = null;
+		      }
 		      disposeBs = betterSidebarSvc.registerTab({
 		        id: "anyfind",
 		        title: () => "\u641C\u7D22",

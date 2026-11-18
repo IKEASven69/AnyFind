@@ -2616,6 +2616,10 @@ export function apply(ctx: Context): void {
     let disposeBs: (() => void) | null = null
     let disposeBsFiles: (() => void) | null = null
     if (betterSidebarSvc !== null) {
+      // 先让位再注册：registerTab 内部会立即向 native sidebarRight 注册 kind，
+      // 若直注册 tab 仍在（sidebarRightTabs 服务先到的时序），会撞
+      // 「tab kind "anyfind" is already registered」——必须在它之前撤掉直注册。
+      if (disposeDirectTab !== null) { disposeDirectTab(); disposeDirectTab = null }
       disposeBs = betterSidebarSvc.registerTab({
         id: 'anyfind',
         title: () => '搜索',
