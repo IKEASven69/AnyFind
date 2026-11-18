@@ -24,7 +24,7 @@
 
 ```
 core/anyfind-core   Rust 内核 lib：MFT/USN 实时索引、FTS、六家适配器、查询 DSL
-core/anyfindd       HTTP daemon（docs/api-contract.md，loopback 无认证）
+core/anyfindd       HTTP daemon（docs/api-contract.md，loopback 无认证）＋ `mcp` 子命令（stdio MCP server）
 apps/desktop        Tauri 桌面壳：液态玻璃暗色 UI、Ctrl+K、托盘、单实例、开机自启
 apps/dsh-plugin     dsh-anyfind 插件：/anyfind 斜杠命令 + anyfind_search 工具 + 内核代理
 ```
@@ -53,6 +53,24 @@ apps/dsh-plugin     dsh-anyfind 插件：/anyfind 斜杠命令 + anyfind_search 
 - **桌面（人用）**：Releases 下载安装包（Tauri NSIS）；或源码构建 `scripts/build-release.ps1`
 - **dsh 插件（agent 用）**：`dsh plugin add` 指向本仓 `apps/dsh-plugin`；内核地址自动发现（`%APPDATA%/anyfind/config.json`），无桌面端时默认 `127.0.0.1:8790`
 - **提权**（可选）：管理员权限启用 MFT/USN 全盘实时索引；未提权自动降级目录遍历 + 周期重扫
+
+## MCP
+
+`anyfindd mcp [--db <path>] [--no-index]` 把 AnyFind 变成标准 MCP server（stdio，JSON-RPC 2.0），任意 MCP 客户端直接用统一搜索，无需 HTTP 内核在跑。stdout 只输出协议响应，日志走 stderr。工具：`anyfind_search`（统一搜索，`limit` 1..50 缺省 20）、`anyfind_file_read`（行窗口 1..500 缺省 30）、`anyfind_file_stat`。索引模式持单写者锁——桌面 anyfindd 已在跑时自动降级只读，不冲突；`--no-index` 恒为只读。
+
+- **Claude Code**：
+
+  ```
+  claude mcp add anyfind -- D:\path\to\anyfindd.exe mcp
+  ```
+
+- **Cursor**（`.cursor/mcp.json`）：
+
+  ```json
+  { "mcpServers": { "anyfind": { "command": "D:\\path\\to\\anyfindd.exe", "args": ["mcp"] } } }
+  ```
+
+- **通用 stdio 客户端**：以 `anyfindd mcp` 为 command 启动子进程，stdin/stdout 按换行分隔的 JSON-RPC 2.0 通信（`initialize` → `notifications/initialized` → `tools/call`）
 
 ## 文档
 

@@ -2,6 +2,10 @@
 //! 端点：GET /api/health /api/search /api/session/{id} /api/file/{list,read,stat}；
 //!       POST /api/resume /api/reindex /api/file/op。
 //! 默认端口 8790（契约），--port 可配。
+//! MCP 子命令：`anyfindd mcp [--db <path>] [--no-index]`——stdio JSON-RPC 2.0，
+//! 搜索走进程内同一套 unified_search，不起 HTTP 监听（见 mcp.rs）。
+
+mod mcp;
 
 use anyfind_core::name_index::NameIndex;
 use anyfind_core::{agent_files, db, file_ops, paths, resume, scanner, search, util};
@@ -1360,6 +1364,11 @@ fn handle_post(
 }
 
 fn main() {
+    // MCP 子命令先于 parse_args 拦截：裸位置参数在 HTTP 模式被当作 --root。
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("mcp") {
+        std::process::exit(mcp::run_mcp(mcp::parse_mcp_args(&argv[2..])));
+    }
     let args = parse_args();
     // names.bin 必须跟随 --db，而不是继续写入默认配置盘。
     if let Some(dir) = args.db.parent() {

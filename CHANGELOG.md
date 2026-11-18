@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。dsh 插件子包（`apps/dsh-plugin`，npm 包名 `dsh-anyfind`）独立版本化。
 
+## [未发布] MCP server
+
+`anyfindd mcp [--db <path>] [--no-index]` 子命令：任意 MCP 客户端（Claude Code / Cursor / 其他 harness）经 stdio 用统一搜索，不起 HTTP 监听。协议层手搓 JSON-RPC 2.0（换行分隔，零新依赖，serde_json 已有）。
+
+### Added
+
+- **MCP 子命令**：复用 HTTP 主路径初始化（`ANYFIND_DATA_DIR` 跟随 `--db`、`DbInstanceGuard` 单写者锁、`names.bin` 冷启动装载、连接池），以 stdio 服务循环替代 HTTP 监听；搜索走进程内同一套 `unified_search`。**stdout 只输出协议响应，一切日志/横幅走 stderr**
+- **方法**：`initialize`（`protocolVersion` 回显客户端请求值，缺省 `2025-06-18`；`capabilities:{tools:{}}`；`serverInfo:{name:"anyfind", version:<内核版本>}`）、`notifications/initialized`（无响应）、`ping` → `{}`、`tools/list` → 3 工具、`tools/call` 分派；请求带 id 才回响应，notification（无 id）不回
+- **工具**（返回统一 `{content:[{type:"text", text: JSON.stringify(...)}]}`，`isError` 仅工具级失败时 true）：
+  - `anyfind_search{q, kinds?, limit?}` —— 五组命中摊平为单一数组文本；`limit` 钳制 1..50 缺省 20；`kinds` 过滤未知类别（空 = 全部，与 `/api/search` 同语义）
+  - `anyfind_file_read{path, lines?}` —— `{content, totalLines, truncated}`；`lines` 钳制 1..500 缺省 30；复用内核 `require_absolute`/`canonicalize_limited`/二进制嗅探（NUL → `binary:true`）/行分页，>2MB 取前 2MB 置 `truncated`
+  - `anyfind_file_stat{path}` —— `{path, name, is_dir, size, mtime}` 元信息
+- **错误码**：坏 JSON → `-32700`（id:null 回执）；未知方法 → `-32601`；未知工具 / 坏参数 → `-32602`；工具执行失败（路径不存在等）以 `isError:true` 结果返回而非协议错误
+- **单写者锁策略**：索引（写）模式持 `DbInstanceGuard`；锁被占用（如桌面 anyfindd 在跑）时**降级只读**（不开索引线程，WAL 多进程读安全），MCP server 永不因实例锁拒起；`--no-index` 直接只读
+
+### Verification
+
+- 内核单测 **30 项全绿**（新增 `mcp` 模块 18 项：解析/-32700/-32600、initialize 回显、notification 静默、-32601/-32602、limit/lines 钳制、kinds 过滤、结果形态、isError 语义、ServerEnv 真实文件读写）；工作区 `cargo test` 81 项全绿（2026-11-19 实测）
+- 冒烟（2026-11-19 实测，Windows）：12 行输入（含 2 notification）→ stdout 恰 10 行协议响应且逐行可解析，日志全部落 stderr；双实例同库 → 第二实例 stderr 降级提示后正常服务 `ping`
+
 ## [0.2.0] - 2026-11-12
 
 文件工作台版本：吸收 tm5452/dsh-workspace-explorer 的 MIT 预览库（评估见 `docs/ABSORPTION-PLAN.md`，署名随附于各 vendor 目录），搜索之外补齐文件浏览与轻量管理。桌面端与 dsh 插件端共用同一组内核文件端点。
