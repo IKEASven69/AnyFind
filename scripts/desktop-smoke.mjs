@@ -7,8 +7,8 @@
  * 覆盖面（对应 v0.2 文件工作台功能面）：
  *   1. 读取 apps/desktop/ui/index.html，正则提取全部内联 <script> 块；
  *   2. 每块用 node:vm 仅编译不执行做语法门禁，语法错报 index.html 行号；
- *   3. 结构锚点断言：文件端点封装 / 预览通路（文本分页·图片·PDF·富格式）/
- *      目录树 / 多标签 / 右键写操作 / 内核错误文案透出；
+ *   3. 结构锚点断言：文件端点封装 / 预览通路（文本分页·图片·PDF·富格式·媒体播放）/
+ *      目录树 / 盘符首页 / 收藏夹（anyfind.favorites）/ 多标签 / 右键写操作 / 内核错误文案透出；
  *   4. 本地资源存在性：vendor/pdfjs 主包与 worker、cmaps/、standard_fonts/
  *      抽查 3 个文件 + 外部模块 vendor/preview/rich.js（可编译时顺带语法门禁）。
  *
@@ -125,6 +125,22 @@ assertAnchors([
   // —— 目录树 / 多标签 ——
   ["renderTree",    /function\s+renderTree\s*\(/,                  "js", "目录树渲染"],
   ["closeTab",      /function\s+closeTab\s*\(/,                    "js", "多标签关闭"],
+  // —— 盘符首页（契约 v0.2 GET /api/file/drives）——
+  ["apiFileDrives",     /(?:async\s+)?function\s+apiFileDrives\s*\(/,     "js", "盘符枚举端点封装"],
+  ["DRIVE_ICONS",       /DRIVE_ICONS\s*=\s*\{/,                           "js", "盘符 type 图标区分（fixed/removable/cdrom/ram/unknown）"],
+  ["renderDrivesHome",  /function\s+renderDrivesHome\s*\(/,               "js", "树根级盘符首页（点击进各盘根）"],
+  // —— 收藏夹（localStorage anyfind.favorites）——
+  ["fav storage key", /["']anyfind\.favorites["']/,               "js", "收藏夹 localStorage 持久键"],
+  ["toggleFav",       /function\s+toggleFav\s*\(/,                "js", "树/结果行星标切换收藏"],
+  ["renderFavBar",    /function\s+renderFavBar\s*\(/,             "js", "收藏栏渲染（拖拽排序）"],
+  ["fav-bar DOM",     /id\s*=\s*["']fav-bar["']/,                 "html", "收藏栏容器"],
+  // —— 媒体播放（base64→Blob URL，>2MB 降级）——
+  ["MEDIA_MIME",      /MEDIA_MIME\s*=\s*\{/,                      "js", "音视频扩展名→MIME 判定"],
+  ["mediaKindFor",    /function\s+mediaKindFor\s*\(/,             "js", "音视频类型判定（video/audio）"],
+  ["loadMedia",       /(?:async\s+)?function\s+loadMedia\s*\(/,   "js", "媒体 base64→Blob URL 加载"],
+  ["video 控件",      /document\.createElement\(\s*["']video["']\s*\)/, "js", "预览面板 <video> 控件"],
+  ["audio 控件",      /document\.createElement\(\s*["']audio["']\s*\)/, "js", "预览面板 <audio> 控件"],
+  ["MEDIA_LIMIT",     /MEDIA_LIMIT\s*=\s*2\s*\*\s*1024\s*\*\s*1024/,    "js", ">2MB 媒体降级阈值（对齐内核 READ_SIZE_MAX）"],
   // —— 右键写操作菜单 ——
   ["runFileOp",     /(?:async\s+)?function\s+runFileOp\s*\(/,      "js", "写操作执行"],
   ["newEntryFlow",  /(?:async\s+)?function\s+newEntryFlow\s*\(/,   "js", "新建文件/文件夹流程"],

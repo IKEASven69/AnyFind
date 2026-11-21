@@ -335,7 +335,7 @@
     transition: width 0.2s cubic-bezier(0.25,0.1,0.25,1); overflow: hidden;
   }
   #sidebar.collapsed { width: 34px; }
-  #sidebar.collapsed .sb-title, #sidebar.collapsed #sb-root-row, #sidebar.collapsed .sb-body { display: none; }
+  #sidebar.collapsed .sb-title, #sidebar.collapsed #sb-root-row, #sidebar.collapsed #fav-bar, #sidebar.collapsed .sb-body { display: none; }
   .sb-head { display: flex; align-items: center; gap: 6px; padding: 8px 6px 6px; flex-shrink: 0; }
   .sb-title { flex: 1; min-width: 0; font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; color: rgba(255,255,255,0.45); text-transform: uppercase; overflow: hidden; }
   .sb-btn { width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.5); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.12s, color 0.12s; }
@@ -370,6 +370,42 @@
   .tn .t-name { overflow: hidden; text-overflow: ellipsis; }
   .tn.file .t-name { color: rgba(255,255,255,0.7); }
   .tn.err .t-name { color: #ff9b9b; }
+  /* 树/结果行星标按钮（收藏夹） */
+  .tn .t-star {
+    display: none; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 16px; height: 16px; margin-left: auto; padding-right: 4px; border-radius: 4px;
+    font-size: 11px; line-height: 1; color: rgba(255,255,255,0.35); cursor: pointer; user-select: none;
+  }
+  .tn:hover .t-star, .tn.sel .t-star, .tn .t-star.on { display: inline-flex; }
+  .tn .t-star.on { color: #ffd166; }
+  .tn .t-star:hover { background: rgba(255,255,255,0.12); color: #ffd166; }
+  .tn .t-sub { flex-shrink: 0; margin-left: 5px; font-size: 9.5px; color: rgba(255,255,255,0.32); }
+  .acts button.fav-star-btn.on { color: #ffd166; border-color: rgba(255,209,102,0.5); }
+  /* 收藏栏（拖拽排序） */
+  #fav-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 6px; flex-shrink: 0; max-height: 92px; overflow-y: auto; }
+  #fav-bar:empty { display: none; }
+  .fav-chip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2.5px 4px 2.5px 7px;
+    border-radius: 6px; font-size: 10.5px; color: rgba(255,255,255,0.78);
+    background: rgba(255,255,255,0.06); border: 0.5px solid rgba(255,255,255,0.12);
+    cursor: pointer; user-select: none; transition: background 0.12s, border-color 0.12s;
+  }
+  .fav-chip:hover { background: rgba(120,150,255,0.22); border-color: rgba(120,150,255,0.4); }
+  .fav-chip.dragging { opacity: 0.4; }
+  .fav-chip.over { box-shadow: -2px 0 0 rgba(120,150,255,0.9); }
+  .fav-chip .fav-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 148px; }
+  .fav-chip .fav-x {
+    width: 13px; height: 13px; border-radius: 4px; border: none; background: transparent;
+    color: rgba(255,255,255,0.4); font-size: 9px; cursor: pointer; padding: 0; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
+  }
+  .fav-chip .fav-x:hover { background: rgba(255,255,255,0.18); color: #fff; }
+  /* 媒体预览（<video>/<audio> 控件） */
+  #preview-body video.pv-video {
+    display: block; max-width: 100%; max-height: calc(100vh - 240px); margin: 8px auto;
+    border-radius: 8px; background: #000;
+  }
+  #preview-body audio.pv-audio { display: block; width: 100%; max-width: 420px; margin: 20px auto; }
   /* 标签栏（结果区上方） */
   #tab-bar { display: flex; align-items: center; gap: 5px; padding: 3px 14px 5px; min-height: 30px; position: relative; z-index: 3; flex-shrink: 0; }
   #tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
@@ -535,6 +571,7 @@
         <input id="sb-root" placeholder="根路径 如 D:/coding" spellcheck="false" autocomplete="off">
         <button id="sb-go">转到</button>
       </div>
+      <div id="fav-bar" title="收藏夹（拖拽排序，点击定位）"></div>
       <div class="sb-body">
         <div id="tree"></div>
       </div>
@@ -654,6 +691,7 @@ const FF = {
   indexCounts: null,
   tabs: [],               // 多标签状态（切 tab 纯客户端零请求）
   activeTabId: null,
+  favorites: [],          // 收藏夹 [{path, name, is_dir}]，localStorage 持久（键 anyfind.favorites）
 };
 
 const GROUPS = [
@@ -786,11 +824,32 @@ function b64ToBytes(b64) {
   return out;
 }
 const IMG_MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", ico: "image/x-icon" };
+/* 媒体播放判定：常见音视频扩展名 → MIME（base64→Blob URL 供 <video>/<audio> 控件） */
+const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac", "opus"]);
+const VIDEO_EXTS = new Set(["mp4", "webm", "mkv", "mov", "m4v", "avi"]);
+const MEDIA_MIME = {
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
+  m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", opus: "audio/ogg",
+  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", mkv: "video/x-matroska",
+  mov: "video/quicktime", avi: "video/x-msvideo",
+};
+/** 与内核 READ_SIZE_MAX（2MiB）一致：>2MB 的 base64 读取会 413，视频降级「用系统打开」。 */
+const MEDIA_LIMIT = 2 * 1024 * 1024;
+/** 扩展名 → 媒体类型判定："video" | "audio" | null */
+function mediaKindFor(ext) {
+  if (VIDEO_EXTS.has(ext)) return "video";
+  if (AUDIO_EXTS.has(ext)) return "audio";
+  return null;
+}
 async function apiFileStat(path) {
   return kernelGet("/api/file/stat?" + new URLSearchParams({ path }));
 }
 async function apiFileOp(body) {
   return kernelPost("/api/file/op", body);
+}
+/** 盘符枚举（契约 v0.2 GET /api/file/drives）：{drives:[{path:"D:/", type:"fixed"|...}]}，永远 200。 */
+async function apiFileDrives() {
+  return kernelGet("/api/file/drives");
 }
 
 /* ============ 工具 ============ */
@@ -1109,6 +1168,14 @@ function mockRoute(method, path, body) {
       resolve({ ok: true, command: `${body && body.agent === "claude-code" ? "claude" : (body && body.agent) || "agent"} --resume ${body && body.session_id}  (mock 未真正启动)` });
     } else if (path === "/api/health") {
       resolve({ ok: true, version: "mock", index: { files: 128430, sessions: 312, skills: 46, memories: 58 }, indexing: false });
+    } else if (path.startsWith("/api/file/drives")) {
+      resolve({
+        drives: [
+          { path: "C:/", type: "fixed" },
+          { path: "D:/", type: "fixed" },
+          { path: "E:/", type: "removable" },
+        ],
+      });
     } else if (path.startsWith("/api/file/list")) {
       const u = new URL("http://x" + path);
       const p = u.searchParams.get("path") || "";
@@ -1123,6 +1190,20 @@ function mockRoute(method, path, body) {
       });
     } else if (path.startsWith("/api/file/read")) {
       const u = new URL("http://x" + path);
+      if (u.searchParams.get("format") === "base64") {
+        // 取字节通路：返回一段可播放的极短静音 WAV（媒体/图片/PDF 预览 mock 通路）
+        const sr = 8000, n = Math.floor(sr * 0.2);
+        const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+        const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+        ws(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); ws(8, "WAVE"); ws(12, "fmt ");
+        v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+        ws(36, "data"); v.setUint32(40, n * 2, true);
+        let bin = ""; const u8 = new Uint8Array(buf);
+        for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+        resolve({ content_base64: btoa(bin), binary: true, truncated: false });
+        return;
+      }
       const off = Math.max(0, parseInt(u.searchParams.get("offset") || "0", 10) || 0);
       const ln = Math.min(500, Math.max(1, parseInt(u.searchParams.get("lines") || "30", 10) || 30));
       const total = 120;
@@ -1328,7 +1409,11 @@ function actsHTML(h, kind) {
     if (h.path) b.push(`<button data-act="preview">预览</button>`);
     b.push(`<button data-act="folder">所在文件夹</button>`);
   }
-  if (h.path) b.push(`<button data-act="copy">复制路径</button>`);
+  if (h.path) {
+    const fav = favOf(h.path);
+    b.push(`<button class="fav-star-btn${fav ? " on" : ""}" data-act="fav" data-star="${esc(h.path)}" title="${fav ? "取消收藏" : "收藏"}">${fav ? "\u2605" : "\u2606"}</button>`);
+    b.push(`<button data-act="copy">复制路径</button>`);
+  }
   return b.join("");
 }
 
@@ -1386,6 +1471,7 @@ function doAction(act, entry) {
       else toast("仅桌面版支持打开文件夹");
       break;
     case "copy": copyText(h.path || h.cwd); break;
+    case "fav": toggleFav(h.path, basename(h.path) || String(h.title || "").replace(/<[^>]+>/g, ""), h.is_dir === true); break;
     case "preview":
       if (entry.kind === "session") openPreview(h);
       else openFilePreview(h.path, String(h.title || "").replace(/<[^>]+>/g, ""));
@@ -1432,7 +1518,11 @@ async function openPreview(h) {
 }
 function closePreview() {
   const t = activeTab();
-  if (t) { destroyRich(t.preview); t.preview = null; t.history = []; t.histIdx = -1; }
+  if (t) {
+    (t.history || []).forEach(old => disposePreviewState(old));
+    disposePreviewState(t.preview);
+    t.preview = null; t.history = []; t.histIdx = -1;
+  }
   FF.session = null;
   $("preview").classList.remove("open");
   $("q").focus();
@@ -1918,6 +2008,11 @@ function newTab() {
 function closeTab(id) {
   const i = FF.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
+  const closing = FF.tabs[i];
+  // 关掉的标签（splice 与仅剩一标签整表替换两分支同理）释放其预览与历史，防 mediaUrl Blob URL / 富预览句柄泄漏（对齐 closePreview）。
+  (closing.history || []).forEach(old => disposePreviewState(old));
+  disposePreviewState(closing.preview);
+  closing.preview = null; closing.history = []; closing.histIdx = -1;
   if (FF.tabs.length === 1) {
     snapshotActive();
     const fresh = createTabState({ root: (FF.cfg && FF.cfg.tree_root) || FF.tabs[0].root || "" });
@@ -1993,6 +2088,157 @@ function applyMultiSelClasses() {
   });
 }
 
+/* ---- 收藏夹（localStorage 键 anyfind.favorites；树/结果行星标 + 收藏栏拖拽排序） ---- */
+const FAV_KEY = "anyfind.favorites";
+function loadFavList() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    return Array.isArray(v) ? v.filter(x => x && x.path).map(x => ({
+      path: String(x.path), name: String(x.name || basename(x.path) || x.path), is_dir: !!x.is_dir,
+    })) : [];
+  } catch (e) { return []; }
+}
+function saveFavList() {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(FF.favorites)); } catch (e) { toast("收藏保存失败：" + (e.message || e)); }
+}
+function favOf(path) { return (FF.favorites || []).find(f => f.path === path) || null; }
+function toggleFav(path, name, isDir) {
+  if (!path) return;
+  const nm = name || basename(path) || path;
+  const i = FF.favorites.findIndex(f => f.path === path);
+  if (i >= 0) {
+    FF.favorites.splice(i, 1);
+    toast("已取消收藏：" + nm);
+  } else {
+    FF.favorites.push({ path, name: nm, is_dir: !!isDir });
+    toast("已收藏：" + nm);
+  }
+  saveFavList();
+  renderFavBar();
+  refreshStarStates();
+}
+function removeFav(path) {
+  const i = FF.favorites.findIndex(f => f.path === path);
+  if (i < 0) return;
+  FF.favorites.splice(i, 1);
+  saveFavList();
+  renderFavBar();
+  refreshStarStates();
+}
+/** 就地刷新所有星标按钮状态（结果行 + 树行），不重渲染列表以保留滚动/选择。 */
+function refreshStarStates() {
+  document.querySelectorAll("[data-star]").forEach(b => {
+    const on = !!favOf(b.dataset.star);
+    b.classList.toggle("on", on);
+    b.textContent = on ? "\u2605" : "\u2606";
+    b.title = on ? "取消收藏" : "收藏";
+  });
+}
+let dragFavIdx = -1;
+function renderFavBar() {
+  const box = $("fav-bar");
+  if (!box) return;
+  box.innerHTML = "";
+  FF.favorites.forEach((f, i) => {
+    const el = document.createElement("span");
+    el.className = "fav-chip";
+    el.draggable = true;
+    el.title = f.path + "（点击定位，拖拽排序）";
+    el.innerHTML = `<span class="fav-name">\u2B50 ${esc(f.name)}</span><button class="fav-x" title="移除收藏">\u2715</button>`;
+    el.addEventListener("click", e => {
+      if (e.target.closest(".fav-x")) { e.stopPropagation(); removeFav(f.path); return; }
+      locateFav(f);
+    });
+    el.addEventListener("dragstart", e => {
+      dragFavIdx = i;
+      el.classList.add("dragging");
+      try { e.dataTransfer.setData("text/plain", String(i)); e.dataTransfer.effectAllowed = "move"; } catch (err) {}
+    });
+    el.addEventListener("dragend", () => {
+      dragFavIdx = -1;
+      el.classList.remove("dragging");
+      box.querySelectorAll(".fav-chip").forEach(x => x.classList.remove("over"));
+    });
+    el.addEventListener("dragover", e => {
+      if (dragFavIdx < 0 || dragFavIdx === i) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = "move"; } catch (err) {}
+      el.classList.add("over");
+    });
+    el.addEventListener("dragleave", () => el.classList.remove("over"));
+    el.addEventListener("drop", e => {
+      e.preventDefault();
+      el.classList.remove("over");
+      if (dragFavIdx < 0 || dragFavIdx === i) return;
+      const moved = FF.favorites.splice(dragFavIdx, 1)[0];
+      FF.favorites.splice(i, 0, moved);
+      dragFavIdx = -1;
+      saveFavList();
+      renderFavBar();
+    });
+    box.appendChild(el);
+  });
+}
+/** 点击收藏定位：目录 → 目录树定位到该目录根；文件 → 预览面板打开。 */
+function locateFav(f) {
+  if (!f || !f.path) return;
+  if (f.is_dir) setTreeRoot(f.path, { silent: true });
+  else openFilePreview(f.path, f.name || basename(f.path));
+}
+
+/* ---- 盘符首页（树根级列出 /api/file/drives 盘符，点击进入各盘根） ---- */
+const DRIVE_ICONS = {
+  fixed:     { ico: "\u{1F5B4}\u{FE0F}", label: "本地硬盘" },
+  removable: { ico: "\u{1F50C}",          label: "可移动盘" },
+  cdrom:     { ico: "\u{1F4BF}",          label: "光驱" },
+  ram:       { ico: "\u26A1",             label: "内存盘" },
+  unknown:   { ico: "\u{1F310}",          label: "网络/其他" },
+};
+let drivesHome = null; // null=未加载；否则 {loading, list:[{path,type}], error}
+async function loadDrivesHome() {
+  drivesHome = { loading: true, list: [], error: null };
+  try {
+    const r = await apiFileDrives();
+    const list = ((r && r.drives) || []).filter(d => d && d.path)
+      .map(d => ({ path: String(d.path).replace(/\\/g, "/"), type: String(d.type || "unknown") }));
+    drivesHome = { loading: false, list, error: null };
+  } catch (e) {
+    drivesHome = { loading: false, list: [], error: e.message || String(e) };
+  }
+  renderTree();
+}
+function renderDrivesHome() {
+  const box = $("tree");
+  if (!drivesHome) {
+    loadDrivesHome();
+    box.innerHTML = '<div class="tree-empty">正在读取盘符…<br>也可在上方输入根目录路径后按回车</div>';
+    treeFlatList = [];
+    return;
+  }
+  treeFlatList = [];
+  if (drivesHome.loading) { box.innerHTML = '<div class="tree-empty">正在读取盘符…</div>'; return; }
+  if (drivesHome.error) {
+    box.innerHTML = `<div class="tree-empty">盘符读取失败：${esc(drivesHome.error)}<br>可在上方输入根目录路径后按回车，例如 <b>D:/coding</b></div>`;
+    return;
+  }
+  if (!drivesHome.list.length) {
+    box.innerHTML = '<div class="tree-empty">未发现任何盘符<br>可在上方输入根目录路径后按回车</div>';
+    return;
+  }
+  let html = "";
+  drivesHome.list.forEach(d => {
+    const meta = DRIVE_ICONS[d.type] || DRIVE_ICONS.unknown;
+    treeFlatList.push({ path: d.path, is_dir: true });
+    const fav = favOf(d.path);
+    html += `<div class="tn dir" data-path="${esc(d.path)}" data-dir="1" data-drive="1" style="padding-left:6px" title="${esc(d.path)}（${esc(meta.label)}）">` +
+      `<span class="tw">&#x25B6;</span>` +
+      `<span class="t-ico">${meta.ico}</span><span class="t-name">${esc(d.path)}</span>` +
+      `<span class="t-sub">${esc(meta.label)}</span>` +
+      `<span class="t-star${fav ? " on" : ""}" data-star="${esc(d.path)}" title="${fav ? "取消收藏" : "收藏"}">${fav ? "\u2605" : "\u2606"}</span></div>`;
+  });
+  box.innerHTML = html;
+}
+
 /* ---- 目录树（懒加载；噪声目录由契约 noise=0 默认隐藏） ---- */
 function setTreeRoot(root, opts) {
   const t = activeTab();
@@ -2025,11 +2271,7 @@ function renderTree() {
   const t = activeTab();
   const box = $("tree");
   if (!t || !box) return;
-  if (!t.root) {
-    box.innerHTML = '<div class="tree-empty">输入根目录路径后按回车<br>例如 <b>D:/coding</b></div>';
-    treeFlatList = [];
-    return;
-  }
+  if (!t.root) { renderDrivesHome(); return; }
   let html = "";
   treeFlatList = [];
   const emitLoading = depth => {
@@ -2058,9 +2300,11 @@ function renderTree() {
         ? (open ? "\u{1F4C2}" : "\u{1F4C1}")
         : ({ file: "\u{1F4C4}", code: "\u{1F4DC}", app: "\u{2699}\u{FE0F}", image: "\u{1F5BC}\u{FE0F}",
             archive: "\u{1F4E6}", data: "\u{1F5C2}\u{FE0F}", doc: "\u{1F4C4}", folder: "\u{1F4C1}" })[shape] || "\u{1F4C4}";
+      const fav = favOf(p);
       html += `<div class="tn ${isDir ? "dir" : "file"}${selCls}" data-path="${esc(p)}" data-dir="${isDir ? 1 : 0}" style="padding-left:${6 + depth * 14}px" title="${esc(p)}">` +
         `<span class="tw${open ? " open" : ""}">${isDir ? "&#x25B6;" : ""}</span>` +
-        `<span class="t-ico">${emoji}</span><span class="t-name">${esc(en.name)}</span></div>`;
+        `<span class="t-ico">${emoji}</span><span class="t-name">${esc(en.name)}</span>` +
+        `<span class="t-star${fav ? " on" : ""}" data-star="${esc(p)}" title="${fav ? "取消收藏" : "收藏"}">${fav ? "\u2605" : "\u2606"}</span></div>`;
       if (isDir && open) {
         const cs = t.children.get(p);
         if (!cs) { fetchChildren(t, p); emitLoading(depth + 1); }
@@ -2085,10 +2329,23 @@ function toggleExpand(t, path) {
 $("tree").addEventListener("click", e => {
   const t = activeTab();
   if (!t) return;
+  // 星标按钮：切换收藏，不触发选择/展开
+  const starEl = e.target.closest("[data-star]");
+  if (starEl) {
+    e.stopPropagation();
+    const p = starEl.dataset.star;
+    toggleFav(p, basename(p) || p, starEl.closest(".tn") ? starEl.closest(".tn").dataset.dir === "1" : false);
+    return;
+  }
   const tn = e.target.closest(".tn");
   if (!tn || !tn.dataset.path) return;
   const path = tn.dataset.path;
   const isDir = tn.dataset.dir === "1";
+  // 盘符首页行：点击进入该盘根目录（树定位，不持久化 tree_root，保持首页语义）
+  if (tn.dataset.drive === "1") {
+    setTreeRoot(path, { silent: true });
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     if (t.treeSel.has(path)) t.treeSel.delete(path); else t.treeSel.add(path);
     t.treeAnchor = path;
@@ -2144,12 +2401,18 @@ $("results-wrap").addEventListener("contextmenu", e => {
   showCtx(e.clientX, e.clientY, ctxItemsForPaths(paths, isDirTarget));
 });
 
-/* ---- 文件预览（文本分页 / 图片降级 / PDF 经本地 pdfjs） ---- */
+/* ---- 文件预览（文本分页 / 图片降级 / PDF 经本地 pdfjs / 媒体播放） ---- */
+/** 预览态销毁：富句柄释放 + 媒体 Blob URL 回收。 */
+function disposePreviewState(st) {
+  destroyRich(st);
+  disposeMediaUrl(st);
+}
 function pushPreview(st) {
   const t = activeTab();
   if (!t) return;
-  destroyRich(t.preview);
+  disposePreviewState(t.preview);
   const keep = (t.histIdx == null ? -1 : t.histIdx) + 1;
+  (t.history || []).slice(keep).forEach(old => disposePreviewState(old)); // 被截断的历史同样释放
   t.history = (t.history || []).slice(0, keep);
   t.history.push(st);
   t.histIdx = t.history.length - 1;
@@ -2158,7 +2421,7 @@ function pushPreview(st) {
 function backPreview() {
   const t = activeTab();
   if (!t || !(t.histIdx > 0)) return;
-  destroyRich(t.preview);
+  disposePreviewState(t.preview);
   t.histIdx--;
   const st = t.history[t.histIdx];
   t.preview = st;
@@ -2244,6 +2507,26 @@ function renderPreviewState(st) {
     body.innerHTML = '<div class="empty">加载中…</div>';
     return;
   }
+  if (st.kind === "media") {
+    if (st.error) { body.innerHTML = fallbackHTML("&#x1F3AC;", "媒体预览失败：" + st.error, st.path); return; }
+    if (st.mediaDegrade) { body.innerHTML = fallbackHTML("&#x1F3AC;", st.degradeMsg || "文件超过 2MB，无法内嵌播放，请用系统播放器打开。", st.path); return; }
+    if (st.loading || !st.mediaUrl) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
+    body.innerHTML = "";
+    const el = st.isVideo ? document.createElement("video") : document.createElement("audio");
+    el.className = st.isVideo ? "pv-video" : "pv-audio";
+    el.controls = true;
+    el.preload = "metadata";
+    el.src = st.mediaUrl;
+    el.addEventListener("error", () => {
+      // 容器/编码浏览器不支持（如 avi/部分 mkv）：降级「用系统打开」
+      const t2 = activeTab();
+      if (t2 && t2.preview === st) {
+        body.innerHTML = fallbackHTML("&#x1F3AC;", "该格式的容器/编码浏览器不支持解码，请用系统播放器打开。", st.path);
+      }
+    });
+    body.appendChild(el);
+    return;
+  }
   if (st.kind === "pdf") {
     if (st.pdfError) { body.innerHTML = fallbackHTML("&#x1F4C4;", "PDF 预览不可用：" + st.pdfError, st.path); return; }
     if (!st.pdfDoc) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
@@ -2293,8 +2576,13 @@ async function openFilePreview(path, title) {
   // 富格式（vendor/preview/rich.js：3D/压缩包/TOML/固件/波形/KiCad）优先于文本预览。
   const richKind = window.RichPreview ? window.RichPreview.extKind(ext) : null;
   if (richKind) kind = "rich";
+  // 媒体播放：常见音视频扩展名 → 预览面板 <video>/<audio> 控件（base64→Blob URL）
+  const mediaKind = mediaKindFor(ext);
+  if (mediaKind) kind = "media";
   const st = { kind, richKind, path, title: title || basename(path), offset: 0, lines: 30, page: 1,
-               data: null, stat: null, loading: true, error: null };
+               data: null, stat: null, loading: true, error: null,
+               isVideo: mediaKind === "video", mime: MEDIA_MIME[ext] || (mediaKind === "video" ? "video/mp4" : "audio/mpeg"),
+               mediaUrl: null, mediaDegrade: false, degradeMsg: null };
   pushPreview(st);
   FF.session = null;
   renderPreviewState(st);
@@ -2302,7 +2590,45 @@ async function openFilePreview(path, title) {
   if (kind === "text") await loadTextPage(st);
   else if (kind === "pdf") await ensurePdf(st);
   else if (kind === "rich") await loadRichPreview(st);
+  else if (kind === "media") await loadMedia(st);
   else await loadImage(st);
+}
+/** 媒体预览加载：内核 format=base64（≤2MB）→ Blob URL 供控件播放；>2MB 降级「用系统打开」。 */
+async function loadMedia(st) {
+  st.loading = true;
+  st.error = null;
+  renderIfActive(st);
+  const degrade = msg => {
+    st.loading = false;
+    st.mediaDegrade = true;
+    st.degradeMsg = msg;
+    disposeMediaUrl(st);
+    toast("文件超过 2MB，已降级为「用系统打开」");
+    renderIfActive(st);
+  };
+  try {
+    if (st.stat && Number(st.stat.size) > MEDIA_LIMIT) {
+      degrade(`文件 ${fmtSize(st.stat.size)} 超过 2MB 内嵌播放上限（内核 base64 通路限制），请用系统播放器打开。`);
+      return;
+    }
+    const d = await apiFileBase64(st.path);
+    if (!d || !d.content_base64) throw new Error("内核未返回文件字节");
+    disposeMediaUrl(st);
+    st.mediaUrl = URL.createObjectURL(new Blob([b64ToBytes(d.content_base64)], { type: st.mime }));
+    st.loading = false;
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    if (/2\s*MB|413|过大|超过/.test(msg)) degrade("文件超过 2MB 内嵌播放上限（内核 base64 通路限制），请用系统播放器打开。");
+    else { st.loading = false; st.error = msg; }
+  }
+  renderIfActive(st);
+}
+/** 释放媒体 Blob URL（预览销毁/切换时调用，防泄漏）。 */
+function disposeMediaUrl(st) {
+  if (st && st.mediaUrl) {
+    try { URL.revokeObjectURL(st.mediaUrl); } catch (e) {}
+    st.mediaUrl = null;
+  }
 }
 /** 富预览取字节：内核 format=base64（≤2MB）→ Tauri convertFileSrc 后备（rich.js 内实现）。 */
 async function loadRichPreview(st) {
@@ -2566,7 +2892,8 @@ $("sb-collapse").addEventListener("click", () => {
 });
 $("sb-refresh").addEventListener("click", () => {
   const t = activeTab();
-  if (!t || !t.root) return;
+  if (!t) return;
+  if (!t.root) { drivesHome = null; renderTree(); return; } // 盘符首页：重新枚举盘符
   t.children.clear();
   t.expanded.add(t.root);
   renderTree();
@@ -2586,6 +2913,8 @@ renderTree();
 /* ============ 初始化 ============ */
 (async function init() {
   await loadConfig();
+  FF.favorites = loadFavList();
+  renderFavBar();
   // 演示数据仅供自动化测试显式开启，不受历史配置影响，也不提供正式 UI 入口。
   const urlMock = new URLSearchParams(location.search).get("mock");
   FF.mock = urlMock === "1";

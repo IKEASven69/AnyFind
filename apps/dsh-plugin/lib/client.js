@@ -75338,6 +75338,122 @@ window.__ModuleLoader__.load({
 		  if (op === "rename" && target === "") return "rename \u9700\u8981 target\uFF08\u6240\u5728\u76EE\u5F55\uFF09";
 		  return null;
 		}
+		var FAVORITES_KEY = "anyfind.favorites";
+		var FAVORITES_MAX = 200;
+		function isFavoriteLike(x2) {
+		  if (x2 === null || typeof x2 !== "object" || Array.isArray(x2)) return false;
+		  const it2 = x2;
+		  return typeof it2.path === "string" && it2.path.trim() !== "" && typeof it2.name === "string" && typeof it2.isDir === "boolean" && typeof it2.addedAt === "number";
+		}
+		function normalizeFavorites(raw) {
+		  const list = Array.isArray(raw) ? raw : [];
+		  const seen = /* @__PURE__ */ new Set();
+		  const out = [];
+		  for (const x2 of list) {
+		    if (out.length >= FAVORITES_MAX) break;
+		    if (!isFavoriteLike(x2)) continue;
+		    const path = x2.path.trim();
+		    if (path === "" || seen.has(path)) continue;
+		    seen.add(path);
+		    out.push({ path, name: x2.name, isDir: x2.isDir, addedAt: x2.addedAt });
+		  }
+		  return out;
+		}
+		function favoritesHas(list, path) {
+		  const p = path.trim();
+		  return p !== "" && list.some((x2) => x2.path === p);
+		}
+		function favoritesAdd(list, item) {
+		  const path = item.path.trim();
+		  if (path === "") return list;
+		  if (favoritesHas(list, path)) return list;
+		  const next = [{ ...item, path }, ...list];
+		  return next.length > FAVORITES_MAX ? next.slice(0, FAVORITES_MAX) : next;
+		}
+		function favoritesRemove(list, path) {
+		  const p = path.trim();
+		  if (p === "") return list;
+		  const next = list.filter((x2) => x2.path !== p);
+		  return next.length === list.length ? list : next;
+		}
+		function favoritesToggle(list, item) {
+		  return favoritesHas(list, item.path) ? favoritesRemove(list, item.path) : favoritesAdd(list, item);
+		}
+		function favoritesMove(list, from, to2) {
+		  if (list.length === 0) return list;
+		  const f2 = Math.trunc(from);
+		  const t2 = Math.trunc(to2);
+		  if (f2 < 0 || f2 >= list.length || t2 < 0 || t2 >= list.length || f2 === t2) return list;
+		  const next = [...list];
+		  const moved = next.splice(f2, 1)[0];
+		  next.splice(t2, 0, moved);
+		  return next;
+		}
+		var DRIVE_TYPE_LABEL = Object.freeze({
+		  fixed: "\u672C\u5730\u78C1\u76D8",
+		  removable: "\u53EF\u79FB\u52A8\u78C1\u76D8",
+		  cdrom: "\u5149\u76D8\u9A71\u52A8\u5668",
+		  ram: "\u5185\u5B58\u78C1\u76D8",
+		  unknown: "\u5176\u4ED6"
+		});
+		function formatSize(n2) {
+		  if (!Number.isFinite(n2) || n2 <= 0) return "0 B";
+		  if (n2 < 1024) return `${n2} B`;
+		  if (n2 < 1024 * 1024) return `${(n2 / 1024).toFixed(1)} KB`;
+		  if (n2 < 1024 ** 3) return `${(n2 / 1024 ** 2).toFixed(1)} MB`;
+		  return `${(n2 / 1024 ** 3).toFixed(2)} GB`;
+		}
+		function formatArchiveEntry(entry) {
+		  const name = entry.dir ? `${entry.path}/` : entry.path;
+		  const size = entry.dir ? "\u2014" : formatSize(entry.size ?? 0);
+		  const method = entry.method !== void 0 && entry.method !== "" ? `  ${entry.method}` : "";
+		  const enc = entry.encrypted === true ? "  \xB7\u5DF2\u52A0\u5BC6" : "";
+		  return `${name}  ${size}${method}${enc}`;
+		}
+		function formatArchiveEntryReference(archivePath, entryPath) {
+		  const a2 = archivePath.trim();
+		  const e2 = entryPath.replace(/^\/+/, "");
+		  if (a2 === "" || e2 === "") return "";
+		  return `${a2}!/${e2}`;
+		}
+		function firstLineSummary(selectedText) {
+		  const lines = selectedText.split("\n");
+		  for (const line of lines) {
+		    const t2 = line.replace(/\s+/g, " ").trim();
+		    if (t2 !== "") return t2.length > 160 ? `${t2.slice(0, 160)}\u2026` : t2;
+		  }
+		  return "";
+		}
+		function selectionToLines(text, start, end, firstLineNumber) {
+		  const s2 = Math.min(Math.max(Math.trunc(start), 0), text.length);
+		  const e2 = Math.min(Math.max(Math.trunc(end), 0), text.length);
+		  if (s2 >= e2) return null;
+		  const selected = text.slice(s2, e2);
+		  const lineAt = (off) => {
+		    let n2 = 0;
+		    for (let i2 = 0; i2 < off; i2++) if (text.charCodeAt(i2) === 10) n2++;
+		    return n2;
+		  };
+		  return {
+		    start: firstLineNumber + lineAt(s2),
+		    end: firstLineNumber + lineAt(e2 - 1),
+		    text: selected
+		  };
+		}
+		function formatLineReference(path, startLine, endLine, selectedText) {
+		  const p = path.trim();
+		  const summary = firstLineSummary(selectedText);
+		  if (p === "" || summary === "") return "";
+		  return `${p}:${startLine}-${endLine}
+		> ${summary}`;
+		}
+		function formatPageReference(path, page, selectedText) {
+		  const p = path.trim();
+		  const summary = firstLineSummary(selectedText);
+		  if (p === "" || summary === "") return "";
+		  return `${p}:\u7B2C ${page} \u9875
+		> ${summary}`;
+		}
 		function stripMark(text) {
 		  return text.replace(/<\/?mark>/g, "");
 		}
@@ -81327,6 +81443,19 @@ window.__ModuleLoader__.load({
 		  result.mime = classification.mime;
 		  return result;
 		}
+		async function readEntryText(input, entry, options = {}) {
+		  const limits = resolveLimits(options);
+		  const textLimit = options.textMaxBytes ?? 2 * 1024 * 1024;
+		  const readLimit = Math.min(limits.maxEntryBytes, textLimit);
+		  const result = await readEntry(input, entry, { ...options, maxEntryBytes: readLimit });
+		  const decoded = decodeTextBytes(result.bytes, { maxBytes: textLimit });
+		  return {
+		    ...result,
+		    text: decoded.text,
+		    encoding: decoded.encoding,
+		    looksBinary: !isProbablyText(result.bytes)
+		  };
+		}
 		function buildTree(entries) {
 		  const root = { name: "", path: "", dir: true, size: 0, mtime: null, children: [], entry: null };
 		  const map = /* @__PURE__ */ new Map([["", root]]);
@@ -83549,7 +83678,7 @@ window.__ModuleLoader__.load({
 		var disposeDirectTab = null;
 		var overlayStore = {
 		  open: false,
-		  /** 浮层内视图：搜索（默认）/ 文件；模块级持久，关掉重开不丢。 */
+		  /** 浮层内视图：搜索（默认）/ 文件 / 收藏；模块级持久，关掉重开不丢。 */
 		  view: "search",
 		  listeners: /* @__PURE__ */ new Set(),
 		  toggle() {
@@ -83602,6 +83731,82 @@ window.__ModuleLoader__.load({
 		    return toastStore.message;
 		  }
 		};
+		var favoritesStore = {
+		  state: [],
+		  loaded: false,
+		  listeners: /* @__PURE__ */ new Set()
+		};
+		function favoritesLoadFromDisk() {
+		  let raw = null;
+		  try {
+		    raw = window.localStorage.getItem(FAVORITES_KEY);
+		  } catch {
+		    raw = null;
+		  }
+		  let parsed = null;
+		  if (raw !== null) {
+		    try {
+		      parsed = JSON.parse(raw);
+		    } catch {
+		      parsed = null;
+		    }
+		  }
+		  favoritesStore.state = normalizeFavorites(parsed);
+		}
+		function favoritesPersist() {
+		  try {
+		    window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favoritesStore.state));
+		  } catch {
+		  }
+		}
+		function favoritesApply(next) {
+		  if (next === favoritesStore.state) return;
+		  favoritesStore.state = next;
+		  favoritesPersist();
+		  for (const l2 of favoritesStore.listeners) l2();
+		}
+		var favoritesStorageBound = false;
+		function favoritesBindStorage() {
+		  if (favoritesStorageBound) return;
+		  favoritesStorageBound = true;
+		  window.addEventListener("storage", (e2) => {
+		    if (e2.key !== null && e2.key !== FAVORITES_KEY) return;
+		    favoritesLoadFromDisk();
+		    for (const l2 of favoritesStore.listeners) l2();
+		  });
+		}
+		function favoritesSubscribe(fn2) {
+		  if (!favoritesStore.loaded) {
+		    favoritesStore.loaded = true;
+		    favoritesLoadFromDisk();
+		  }
+		  favoritesBindStorage();
+		  favoritesStore.listeners.add(fn2);
+		  return () => {
+		    favoritesStore.listeners.delete(fn2);
+		  };
+		}
+		function favoritesGet() {
+		  if (!favoritesStore.loaded) {
+		    favoritesStore.loaded = true;
+		    favoritesLoadFromDisk();
+		  }
+		  return favoritesStore.state;
+		}
+		function favoritesToggleItem(item) {
+		  favoritesApply(favoritesToggle(favoritesStore.state, {
+		    path: item.path,
+		    name: item.name !== "" ? item.name : fsBasename(item.path),
+		    isDir: item.isDir,
+		    addedAt: Date.now()
+		  }));
+		}
+		function favoritesRemoveItem(path) {
+		  favoritesApply(favoritesRemove(favoritesStore.state, path));
+		}
+		function favoritesMoveItem(from, to2) {
+		  favoritesApply(favoritesMove(favoritesStore.state, from, to2));
+		}
 		var draftBridge = null;
 		function setDraftBridge(bridge) {
 		  draftBridge = bridge;
@@ -83864,6 +84069,63 @@ window.__ModuleLoader__.load({
 		.rc-pvrow .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.rc-pvrow .m { flex: none; font-size: 10px; color: var(--rc-mut); font-variant-numeric: tabular-nums; }
 		
+		/* \u6536\u85CF\u5939\uFF1A\u661F\u6807\u6309\u94AE + \u6536\u85CF\u9762\u677F\uFF08\u62D6\u62FD\u6392\u5E8F / \u70B9\u51FB\u5B9A\u4F4D\uFF09 */
+		.rc-fav-btn { font-family: inherit; border: none; background: transparent; cursor: pointer; padding: 2px 3px;
+		  font-size: 12px; line-height: 1; color: var(--rc-mut); border-radius: 5px; }
+		.rc-fav-btn:hover { background: rgba(127,127,127,.15); }
+		.rc-fav-btn.on { color: #f5b301; }
+		.rc-fav { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+		.rc-fav-head { flex: none; padding: 10px 14px 6px; font-size: 12px; color: var(--rc-mut); display: flex;
+		  gap: 8px; align-items: center; }
+		.rc-fav-list { flex: 1; overflow-y: auto; padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 1px; }
+		.rc-favrow { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; cursor: pointer;
+		  font-size: 12.5px; user-select: none; }
+		.rc-favrow:hover { background: rgba(127,127,127,.1); }
+		.rc-favrow.drop { box-shadow: inset 0 2px 0 var(--rc-a); }
+		.rc-favrow .rc-fav-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		  font-size: 10.5px; color: var(--rc-mut); font-family: monospace; }
+		.rc-fav-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px 16px;
+		  text-align: center; color: var(--rc-mut); font-size: 12.5px; }
+		
+		/* \u76D8\u7B26\u9996\u9875\uFF1Atype \u56FE\u6807\u884C */
+		.rc-drive { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+		  font-size: 13px; user-select: none; }
+		.rc-drive:hover { background: rgba(127,127,127,.1); }
+		.rc-drive-ico { width: 20px; height: 20px; flex: none; display: flex; align-items: center; justify-content: center;
+		  border-radius: 6px; background: var(--rc-card); border: 1px solid var(--rc-line); font-size: 11px; }
+		.rc-drive-name { font-weight: 600; min-width: 52px; }
+		.rc-drive-type { font-size: 10.5px; color: var(--rc-mut); }
+		
+		/* \u884C\u5185\u91CD\u547D\u540D\u8F93\u5165\u6846\uFF08\u6811/\u7ED3\u679C\u884C\u540D\u5B57\u539F\u4F4D\u66FF\u6362\uFF09 */
+		.rc-frename { flex: 1; min-width: 0; font-size: 12.5px; font-family: inherit; padding: 2px 6px; border-radius: 6px;
+		  border: 1px solid var(--rc-a); outline: none; background: var(--dsw-alias-bg-base, #fff); color: inherit; }
+		
+		/* \u6279\u91CF\u5DE5\u5177\u680F\uFF08Ctrl/Shift \u591A\u9009\u540E\u51FA\u73B0\uFF1A\u590D\u5236/\u526A\u5207/\u7C98\u8D34/\u5220\u9664/\u6E05\u9664\uFF09 */
+		.rc-batch { flex: none; border-top: 1px solid var(--rc-line); padding: 7px 12px; display: flex; gap: 6px;
+		  align-items: center; flex-wrap: wrap; }
+		.rc-batch-n { font-size: 11px; color: var(--rc-mut); margin-right: auto; }
+		
+		/* \u538B\u7F29\u5305\u6D4F\u89C8\u5668\uFF1A\u6761\u76EE\u6811 + \u6761\u76EE\u8BE6\u60C5 */
+		.rc-arch { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; padding: 2px 10px 10px; }
+		.rc-arch-info { font-size: 10.5px; color: var(--rc-mut); display: flex; gap: 8px; flex-wrap: wrap; }
+		.rc-arch-tree { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--rc-line); border-radius: 9px;
+		  background: var(--rc-card); padding: 4px 6px; display: flex; flex-direction: column; gap: 1px; }
+		.rc-arch-detail { flex: none; max-height: 42%; overflow: auto; border: 1px solid var(--rc-line); border-radius: 9px;
+		  background: var(--rc-card); padding: 6px 8px; font-size: 11.5px; }
+		.rc-arch-detail pre { margin: 4px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		  font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; color: inherit; }
+		.rc-arch-enc { color: #f5b301; }
+		
+		/* \u5A92\u4F53\u64AD\u653E\uFF1Avideo / audio\uFF08bytes\u2192blob\uFF09 */
+		.rc-pvmedia { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+		.rc-pvmedia video { max-width: 100%; max-height: 100%; border-radius: 6px; background: #000; }
+		.rc-pvmedia audio { width: min(420px, 100%); }
+		
+		/* PDF \u6587\u672C\u5C42\uFF08\u5212\u8BCD\u5F15\u7528\u7528\uFF1A\u900F\u660E\u6587\u5B57\u53E0 canvas\uFF0C\u53EF\u9009\u4E2D\uFF09 */
+		.rc-pdfwrap { position: relative; display: inline-block; text-align: left; }
+		.rc-pvtext { position: absolute; inset: 0; overflow: hidden; line-height: 1; cursor: text; }
+		.rc-pvtext span { position: absolute; color: transparent; white-space: pre; transform-origin: 0 0; }
+		
 		/* \u53F3\u952E\u5199\u64CD\u4F5C\u83DC\u5355\uFF08\u6811\u8282\u70B9 / \u641C\u7D22\u7ED3\u679C\u884C\uFF09 */
 		.rc-ctx { position: fixed; z-index: 120; min-width: 196px; max-width: 320px; padding: 5px;
 		  border-radius: 11px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, #fff));
@@ -83926,6 +84188,14 @@ window.__ModuleLoader__.load({
 		  if (body !== null && body.down === true) throw coreDown(body, "\u5185\u6838\u672A\u542F\u52A8");
 		  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
 		  if (!Array.isArray(body.entries)) throw new Error("\u5185\u6838\u54CD\u5E94\u7ED3\u6784\u5F02\u5E38\uFF08entries \u7F3A\u5931\uFF09");
+		  return body;
+		}
+		async function getFileDrives() {
+		  const res = await fetch("/dsh-anyfind/api/file/drives", { cache: "no-store" });
+		  const body = await res.json().catch(() => null);
+		  if (body !== null && body.down === true) throw coreDown(body, "\u5185\u6838\u672A\u542F\u52A8");
+		  if (body === null || !res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+		  if (!Array.isArray(body.drives)) throw new Error("\u5185\u6838\u54CD\u5E94\u7ED3\u6784\u5F02\u5E38\uFF08drives \u7F3A\u5931\uFF09");
 		  return body;
 		}
 		async function getFileRead(path, offset, lines, signal) {
@@ -84128,22 +84398,26 @@ window.__ModuleLoader__.load({
 		function HitRow({ hit, focused, cmd, busyKey, onResume, onCopy, onDown, onPreview, onReference, onMenu, onCtrlSelect }) {
 		  const [err, setErr] = (0, import_react.useState)(null);
 		  const rowRef = (0, import_react.useRef)(null);
+		  const favs = (0, import_react.useSyncExternalStore)(favoritesSubscribe, favoritesGet);
+		  const renaming = (0, import_react.useSyncExternalStore)(renameStore.subscribe, renameStore.get);
 		  (0, import_react.useEffect)(() => {
 		    if (focused) rowRef.current?.scrollIntoView({ block: "nearest" });
 		  }, [focused]);
 		  const meta = [hit.agent, hit.project, fmtMtime(hit.mtime)].filter((x2) => x2 !== null && x2 !== "");
 		  const hasPath = hit.path !== null && hit.path !== "";
+		  const editing = hasPath && renaming !== null && renaming.path === hit.path;
+		  const faved = hasPath && favoritesHas(favs, hit.path ?? "");
 		  return (0, import_react.createElement)(
 		    "div",
 		    {
 		      className: `rc-hit${focused ? " focused" : ""}`,
 		      ref: rowRef,
-		      draggable: hasPath,
-		      onDragStart: hasPath ? (e2) => {
+		      draggable: hasPath && !editing,
+		      onDragStart: hasPath && !editing ? (e2) => {
 		        startFileDrag(e2, {
 		          path: hit.path ?? "",
 		          name: hit.title ?? fsBasename(hit.path ?? ""),
-		          type: "file"
+		          type: hit.is_dir === true ? "folder" : "file"
 		        });
 		      } : void 0,
 		      onContextMenu: hasPath ? (e2) => {
@@ -84155,13 +84429,27 @@ window.__ModuleLoader__.load({
 		        onCtrlSelect(hit.path ?? "");
 		      } : void 0
 		    },
-		    (0, import_react.createElement)("div", { className: "rc-hit-t" }, hit.title ?? hit.path ?? "(\u65E0\u6807\u9898)"),
+		    editing ? (0, import_react.createElement)(RenameEditor, { path: hit.path ?? "", initial: fsBasename(hit.path ?? ""), wide: true }) : (0, import_react.createElement)("div", {
+		      className: "rc-hit-t",
+		      title: hasPath ? "\u53CC\u51FB\u91CD\u547D\u540D\uFF08\u805A\u7126\u540E F2 \u4EA6\u53EF\uFF09" : void 0,
+		      onDoubleClick: hasPath ? (e2) => {
+		        e2.stopPropagation();
+		        renameStore.open(hit.path ?? "");
+		      } : void 0
+		    }, hit.title ?? hit.path ?? "(\u65E0\u6807\u9898)"),
 		    meta.length > 0 ? (0, import_react.createElement)("div", { className: "rc-hit-meta" }, ...meta.map((m2, i2) => (0, import_react.createElement)("span", { key: i2 }, m2))) : null,
 		    hit.snippet !== null && hit.snippet !== "" ? (0, import_react.createElement)(Snippet, { text: hit.snippet }) : null,
 		    hit.path !== null && hit.path !== hit.title ? (0, import_react.createElement)("div", { className: "rc-hit-path" }, hit.path) : null,
 		    hasPath ? (0, import_react.createElement)(
 		      "div",
 		      { className: "rc-hit-ops" },
+		      (0, import_react.createElement)("button", {
+		        className: `rc-fav-btn${faved ? " on" : ""}`,
+		        title: faved ? "\u53D6\u6D88\u6536\u85CF" : "\u6536\u85CF",
+		        onClick: () => {
+		          favoritesToggleItem({ path: hit.path ?? "", name: hit.title ?? fsBasename(hit.path ?? ""), isDir: hit.is_dir === true });
+		        }
+		      }, faved ? "\u2605" : "\u2606"),
 		      (0, import_react.createElement)("button", { className: "rc-btn", onClick: () => {
 		        onPreview(hit);
 		      } }, "\u9884\u89C8"),
@@ -84368,6 +84656,14 @@ window.__ModuleLoader__.load({
 		      else search();
 		      return;
 		    }
+		    if (e2.key === "F2" && selClamped >= 0) {
+		      const target = flatHits[selClamped].hit;
+		      if (target.path !== null && target.path !== "") {
+		        e2.preventDefault();
+		        renameStore.open(target.path);
+		      }
+		      return;
+		    }
 		    if (e2.key === "ArrowDown" || e2.key === "ArrowUp") {
 		      if (flatHits.length === 0) return;
 		      e2.preventDefault();
@@ -84492,7 +84788,7 @@ window.__ModuleLoader__.load({
 		            },
 		            onMenu: (e2, hh) => {
 		              if (hh.path === null || hh.path === "") return;
-		              openContextMenu(e2, hh.path, fsParent(hh.path), false);
+		              openContextMenu(e2, hh.path, hh.is_dir ? hh.path : fsParent(hh.path), hh.is_dir === true);
 		            },
 		            onCtrlSelect: (path) => {
 		              if (path !== "") filesToggleMulti(path);
@@ -84501,6 +84797,8 @@ window.__ModuleLoader__.load({
 		        })
 		      )) : []
 		    ),
+		    // Ctrl/Shift 多选（含文件视图带过来的选区）→ 批量工具栏（复制/剪切/删除）。
+		    (0, import_react.createElement)(BatchBarHost),
 		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null,
 		    (0, import_react.createElement)(FileContextMenu)
 		  );
@@ -84549,7 +84847,7 @@ window.__ModuleLoader__.load({
 		  if (base === "") return;
 		  setFilesState((s2) => {
 		    const id = s2.nextId;
-		    const tab = { id, root: base, history: [base], selected: null, multi: [] };
+		    const tab = { id, root: base, history: [base], selected: null, multi: [], anchor: null };
 		    return { ...s2, tabs: [...s2.tabs, tab], activeId: id, nextId: id + 1 };
 		  });
 		}
@@ -84595,6 +84893,52 @@ window.__ModuleLoader__.load({
 		    return { ...s2, tabs: s2.tabs.map((x2) => x2.id === t2.id ? { ...x2, history } : x2) };
 		  });
 		}
+		var HOME_PATH = "";
+		function filesGoHome() {
+		  setFilesState((s2) => {
+		    const t2 = findTab(s2, s2.activeId);
+		    if (t2 === null || currentDir(t2) === HOME_PATH) return s2;
+		    return { ...s2, tabs: s2.tabs.map((x2) => x2.id === t2.id ? { ...x2, history: [...x2.history, HOME_PATH] } : x2) };
+		  });
+		  drivesEnsureLoaded();
+		}
+		var drivesStore = {
+		  state: { status: "loading", drives: [], error: "" },
+		  loaded: false,
+		  seq: 0,
+		  listeners: /* @__PURE__ */ new Set()
+		};
+		function drivesEmit() {
+		  for (const l2 of drivesStore.listeners) l2();
+		}
+		function drivesEnsureLoaded(force = false) {
+		  if (!force && drivesStore.loaded) return;
+		  drivesStore.loaded = true;
+		  const seq = ++drivesStore.seq;
+		  drivesStore.state = { ...drivesStore.state, status: "loading", error: "" };
+		  drivesEmit();
+		  void getFileDrives().then(
+		    (r2) => {
+		      if (drivesStore.seq !== seq) return;
+		      drivesStore.state = { status: "ready", drives: r2.drives, error: "" };
+		      drivesEmit();
+		    },
+		    (e2) => {
+		      if (drivesStore.seq !== seq) return;
+		      drivesStore.state = { status: "error", drives: [], error: errMsg(e2) };
+		      drivesEmit();
+		    }
+		  );
+		}
+		function drivesSubscribe(fn2) {
+		  drivesStore.listeners.add(fn2);
+		  return () => {
+		    drivesStore.listeners.delete(fn2);
+		  };
+		}
+		function drivesGetSnapshot() {
+		  return drivesStore.state;
+		}
 		function filesToggleExpand(path) {
 		  const willExpand = !files.state.expanded.includes(path);
 		  setFilesState((s2) => ({
@@ -84626,6 +84970,28 @@ window.__ModuleLoader__.load({
 		    return { ...s2, tabs: s2.tabs.map((x2) => x2.id === t2.id ? { ...x2, multi, selected } : x2) };
 		  });
 		}
+		function filesSetMulti(paths, anchor) {
+		  let batch = [...paths];
+		  if (batch.length > FILE_OP_MAX_PATHS) {
+		    toastStore.show(`\u6279\u91CF\u9009\u62E9\u8D85\u8FC7 ${FILE_OP_MAX_PATHS} \u9879\u4E0A\u9650\uFF0C\u5DF2\u622A\u53D6\u524D ${FILE_OP_MAX_PATHS} \u9879`);
+		    batch = batch.slice(0, FILE_OP_MAX_PATHS);
+		  }
+		  setFilesState((s2) => {
+		    const t2 = findTab(s2, s2.activeId);
+		    if (t2 === null) return s2;
+		    return {
+		      ...s2,
+		      tabs: s2.tabs.map((x2) => x2.id === t2.id ? { ...x2, multi: batch, selected: batch[batch.length - 1] ?? null, anchor } : x2)
+		    };
+		  });
+		}
+		function filesSelectWithAnchor(path, anchor) {
+		  setFilesState((s2) => {
+		    const t2 = findTab(s2, s2.activeId);
+		    if (t2 === null) return s2;
+		    return { ...s2, tabs: s2.tabs.map((x2) => x2.id === t2.id ? { ...x2, selected: path, multi: [path], anchor } : x2) };
+		  });
+		}
 		function filesContextSelect(path) {
 		  const st2 = files.state;
 		  const tab = findTab(st2, st2.activeId);
@@ -84634,10 +85000,10 @@ window.__ModuleLoader__.load({
 		  filesSelect(path);
 		  return [path];
 		}
-		function filesOpenPreview(path, name, isDir = false) {
+		function filesOpenPreview(path, name, isDir = false, size = -1) {
 		  setFilesState((s2) => ({
 		    ...s2,
-		    preview: { path, name, isDir, offset: 0, lines: 30 }
+		    preview: { path, name, isDir, offset: 0, lines: 30, size }
 		  }));
 		}
 		function filesClosePreview() {
@@ -84769,6 +85135,33 @@ window.__ModuleLoader__.load({
 		  ".ppt",
 		  ".pptx"
 		]);
+		var MEDIA_VIDEO_EXTS = /* @__PURE__ */ new Set([".mp4", ".webm", ".m4v", ".mov", ".mkv"]);
+		var MEDIA_AUDIO_EXTS = /* @__PURE__ */ new Set([".mp3", ".wav", ".ogg", ".oga", ".m4a", ".aac", ".flac", ".opus"]);
+		var MEDIA_MIME = {
+		  ".mp4": "video/mp4",
+		  ".webm": "video/webm",
+		  ".m4v": "video/mp4",
+		  ".mov": "video/quicktime",
+		  ".mkv": "video/x-matroska",
+		  ".mp3": "audio/mpeg",
+		  ".wav": "audio/wav",
+		  ".ogg": "audio/ogg",
+		  ".oga": "audio/ogg",
+		  ".m4a": "audio/mp4",
+		  ".aac": "audio/aac",
+		  ".flac": "audio/flac",
+		  ".opus": "audio/opus"
+		};
+		function mediaMime(ext) {
+		  return MEDIA_MIME[ext] ?? "application/octet-stream";
+		}
+		var PREVIEW_VIDEO_MAX_BYTES = 2 * 1024 * 1024;
+		function isArchiveName(name) {
+		  const lower = name.toLowerCase();
+		  if (lower.endsWith(".tar.gz")) return true;
+		  const e2 = extOf(lower);
+		  return e2 === ".zip" || e2 === ".jar" || e2 === ".war" || e2 === ".apk" || e2 === ".epub" || e2 === ".cbz" || e2 === ".xpi" || e2 === ".tar" || e2 === ".gz" || e2 === ".tgz";
+		}
 		var VENDOR_PREVIEW_BY_EXT = (() => {
 		  const map = /* @__PURE__ */ new Map();
 		  const defs = previewDefinitions;
@@ -84794,12 +85187,185 @@ window.__ModuleLoader__.load({
 		    }
 		  );
 		}
+		var ARCH_TEXT_PREVIEW_MAX = 512 * 1024;
+		function ArchiveBrowser({ path, name, bytes }) {
+		  const [list, setList] = (0, import_react.useState)({ status: "loading" });
+		  const [expanded, setExpanded] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+		  const [sel, setSel] = (0, import_react.useState)(null);
+		  (0, import_react.useEffect)(() => {
+		    let cancelled = false;
+		    setList({ status: "loading" });
+		    setSel(null);
+		    setExpanded(/* @__PURE__ */ new Set());
+		    void listArchive(bytes, { filename: name }).then(
+		      (r2) => {
+		        if (cancelled) return;
+		        if (r2.supported !== true) {
+		          setList({ status: "unsupported", hint: typeof r2.hint === "string" && r2.hint !== "" ? r2.hint : "\u4E0D\u652F\u6301\u7684\u5F52\u6863\u683C\u5F0F" });
+		          return;
+		        }
+		        setList({
+		          status: "ready",
+		          format: r2.format ?? "",
+		          entries: Array.isArray(r2.entries) ? r2.entries : [],
+		          truncated: r2.truncated === true,
+		          notes: Array.isArray(r2.notes) ? r2.notes.filter((x2) => typeof x2 === "string") : []
+		        });
+		      },
+		      (e2) => {
+		        if (!cancelled) setList({ status: "error", error: errMsg(e2) });
+		      }
+		    );
+		    return () => {
+		      cancelled = true;
+		    };
+		  }, [bytes, name]);
+		  const openEntry = (node) => {
+		    if (node.dir || node.entry === void 0 || node.entry === null) return;
+		    const entry = node.entry;
+		    setSel({ path: node.path, status: "loading" });
+		    void readEntryText(bytes, entry, { textMaxBytes: ARCH_TEXT_PREVIEW_MAX }).then(
+		      (r2) => {
+		        const notes = [
+		          typeof r2.note === "string" ? r2.note : "",
+		          r2.truncated === true ? `\u5185\u5BB9\u8D85\u8FC7 ${ARCH_TEXT_PREVIEW_MAX >> 10}KB \u5DF2\u622A\u65AD` : "",
+		          typeof r2.encoding === "string" && r2.encoding !== "utf-8" ? `\u7F16\u7801 ${r2.encoding}\uFF08\u515C\u5E95\u89E3\u7801\uFF09` : ""
+		        ].filter((x2) => x2 !== "");
+		        setSel((cur) => cur !== null && cur.path === node.path ? { path: node.path, status: "text", text: typeof r2.text === "string" ? r2.text : "", note: notes.join("\uFF1B") } : cur);
+		      },
+		      (e2) => {
+		        setSel((cur) => cur !== null && cur.path === node.path ? { path: node.path, status: "error", error: errMsg(e2) } : cur);
+		      }
+		    );
+		  };
+		  const toggleExpand = (nodePath) => {
+		    setExpanded((prev) => {
+		      const next = new Set(prev);
+		      if (next.has(nodePath)) next.delete(nodePath);
+		      else next.add(nodePath);
+		      return next;
+		    });
+		  };
+		  const tree = list.status === "ready" ? buildTree(list.entries) : null;
+		  const rows = [];
+		  if (tree !== null) {
+		    const walk = (children2, depth) => {
+		      for (const c2 of children2 ?? []) {
+		        const isOpen = c2.dir === true && expanded.has(c2.path);
+		        rows.push({ key: c2.path, depth, node: c2 });
+		        if (isOpen) walk(c2.children, depth + 1);
+		      }
+		    };
+		    walk(tree.children, 0);
+		  }
+		  if (list.status === "loading") {
+		    return (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch" },
+		      (0, import_react.createElement)("div", { className: "rc-ph" }, (0, import_react.createElement)("span", { className: "rc-spin" }), "\u89E3\u6790\u538B\u7F29\u5305\u2026")
+		    );
+		  }
+		  if (list.status === "error") {
+		    return (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch" },
+		      (0, import_react.createElement)("div", { className: "rc-banner rc-banner-err" }, list.error)
+		    );
+		  }
+		  if (list.status === "unsupported") {
+		    return (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch" },
+		      (0, import_react.createElement)("div", { className: "rc-ph" }, list.hint)
+		    );
+		  }
+		  return (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-arch" },
+		    (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch-info" },
+		      (0, import_react.createElement)("span", null, `${name} \xB7 ${list.format}`),
+		      (0, import_react.createElement)("span", null, `${list.entries.length} \u6761\u76EE${list.truncated ? "\uFF08\u8D85\u4E0A\u9650\u622A\u65AD\uFF09" : ""}`),
+		      (0, import_react.createElement)("span", null, "\u6587\u672C\u6761\u76EE\u70B9\u51FB\u9884\u89C8 \xB7 \u4EFB\u610F\u6761\u76EE\u53EF\u5F15\u7528\uFF08\u6309\u94AE\u6216\u62D6\u62FD\uFF09")
+		    ),
+		    list.notes.length > 0 ? (0, import_react.createElement)("div", { className: "rc-banner rc-banner-info" }, list.notes.join("\uFF1B")) : null,
+		    (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch-tree" },
+		      rows.length === 0 ? (0, import_react.createElement)("div", { className: "rc-fhint" }, "\uFF08\u7A7A\u5F52\u6863\uFF09") : rows.map(({ key, depth, node }) => {
+		        const entry = node.entry ?? null;
+		        const encrypted = entry?.encrypted === true;
+		        const refText = formatArchiveEntryReference(path, node.path);
+		        const selRow = sel?.path === node.path;
+		        return (0, import_react.createElement)(
+		          "div",
+		          {
+		            key,
+		            className: `rc-frow${node.dir ? " dir" : ""}${selRow ? " sel" : ""}`,
+		            style: { paddingLeft: 10 + depth * 14 },
+		            title: entry !== null ? formatArchiveEntry(entry) : node.path,
+		            draggable: refText !== "",
+		            onDragStart: refText !== "" ? (e2) => {
+		              startFileDrag(e2, { path: refText, name: node.name, type: node.dir ? "folder" : "file" });
+		            } : void 0,
+		            onClick: () => {
+		              if (node.dir) {
+		                toggleExpand(node.path);
+		                return;
+		              }
+		              if (!encrypted) openEntry(node);
+		            }
+		          },
+		          (0, import_react.createElement)("span", { className: "rc-fico" }, node.dir ? expanded.has(node.path) ? "\u25BE" : "\u25B8" : "\xB7"),
+		          (0, import_react.createElement)("span", { className: "rc-fname" }, node.name, encrypted ? (0, import_react.createElement)("span", { className: "rc-arch-enc" }, " \u{1F512}") : null),
+		          node.dir ? null : (0, import_react.createElement)("span", { className: "rc-fmeta w" }, fmtBytes(entry?.size ?? node.size)),
+		          (0, import_react.createElement)(
+		            "span",
+		            {
+		              className: "rc-fops",
+		              onClick: (e2) => {
+		                e2.stopPropagation();
+		              }
+		            },
+		            !node.dir && !encrypted ? (0, import_react.createElement)("button", { title: "\u9884\u89C8\u6587\u672C", onClick: () => {
+		              openEntry(node);
+		            } }, "\u9884\u89C8") : null,
+		            refText !== "" ? (0, import_react.createElement)("button", { title: "\u5F15\u7528\u5230\u8F93\u5165\u6846", onClick: () => {
+		              referenceOrCopyText(refText);
+		            } }, "\u5F15\u7528") : null
+		          )
+		        );
+		      })
+		    ),
+		    sel !== null ? (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-arch-detail" },
+		      (0, import_react.createElement)("div", { className: "rc-pvinfo", style: { wordBreak: "break-all" } }, `\u6761\u76EE ${sel.path}`),
+		      sel.status === "loading" ? (0, import_react.createElement)("div", { className: "rc-pvinfo" }, "\u8BFB\u53D6\u6761\u76EE\u2026") : sel.status === "error" ? (0, import_react.createElement)("div", { className: "rc-banner rc-banner-err" }, sel.error) : (0, import_react.createElement)(
+		        "div",
+		        null,
+		        sel.note !== "" ? (0, import_react.createElement)("div", { className: "rc-pvinfo" }, sel.note) : null,
+		        (0, import_react.createElement)("pre", null, sel.text),
+		        (0, import_react.createElement)("button", {
+		          className: "rc-btn",
+		          style: { marginTop: 6, padding: "3px 10px" },
+		          onClick: () => {
+		            referenceOrCopyText(formatArchiveEntryReference(path, sel.path));
+		          }
+		        }, "\u5F15\u7528\u6240\u9009\u6761\u76EE")
+		      )
+		    ) : null
+		  );
+		}
 		function FilePreview() {
 		  const st2 = (0, import_react.useSyncExternalStore)(filesSubscribe, filesGetSnapshot);
 		  const preview = st2.preview;
 		  const [view, setView] = (0, import_react.useState)({ kind: "loading" });
 		  const [retry, setRetry] = (0, import_react.useState)(0);
 		  const canvasRef = (0, import_react.useRef)(null);
+		  const textLayerRef = (0, import_react.useRef)(null);
+		  const preRef = (0, import_react.useRef)(null);
 		  const docRef = (0, import_react.useRef)(null);
 		  const taskRef = (0, import_react.useRef)(null);
 		  const path = preview?.path;
@@ -84842,6 +85408,41 @@ window.__ModuleLoader__.load({
 		    const fail2 = (e2) => {
 		      if (!cancelled) setView({ kind: "error", error: errMsg(e2) });
 		    };
+		    if (isArchiveName(name2)) {
+		      void getFileBytes(path).then((data) => {
+		        if (!cancelled) setView({ kind: "archive", data });
+		      }, fail2);
+		      return () => {
+		        cancelled = true;
+		      };
+		    }
+		    if (MEDIA_AUDIO_EXTS.has(ext) || MEDIA_VIDEO_EXTS.has(ext)) {
+		      const isVideo = MEDIA_VIDEO_EXTS.has(ext);
+		      const mime = mediaMime(ext);
+		      if (isVideo && preview !== null && preview.size > PREVIEW_VIDEO_MAX_BYTES) {
+		        setView({ kind: "binary", reason: "video-oversize" });
+		        return () => {
+		          cancelled = true;
+		        };
+		      }
+		      let url = "";
+		      void getFileBytes(path).then(
+		        (data) => {
+		          if (cancelled) return;
+		          if (isVideo && data.length > PREVIEW_VIDEO_MAX_BYTES) {
+		            setView({ kind: "binary", reason: "video-oversize" });
+		            return;
+		          }
+		          url = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: mime }));
+		          setView({ kind: "media", src: url, isVideo, mime, bytes: data.length });
+		        },
+		        fail2
+		      );
+		      return () => {
+		        cancelled = true;
+		        if (url !== "") URL.revokeObjectURL(url);
+		      };
+		    }
 		    if (vendorId !== void 0) {
 		      void getFileBytes(path).then((data) => {
 		        if (!cancelled) setView({ kind: "vendor", id: vendorId, data });
@@ -84910,6 +85511,25 @@ window.__ModuleLoader__.load({
 		      canvas.width = Math.max(1, Math.floor(viewport.width));
 		      canvas.height = Math.max(1, Math.floor(viewport.height));
 		      await page.render({ canvas, viewport }).promise;
+		      if (cancelled) return;
+		      const layer = textLayerRef.current;
+		      if (layer === null) return;
+		      const tc2 = await page.getTextContent();
+		      if (cancelled) return;
+		      layer.innerHTML = "";
+		      layer.style.width = `${Math.floor(viewport.width)}px`;
+		      layer.style.height = `${Math.floor(viewport.height)}px`;
+		      for (const item of tc2.items) {
+		        if (typeof item.str !== "string" || item.str === "" || !Array.isArray(item.transform)) continue;
+		        const t2 = item.transform;
+		        const fontHeight = Math.hypot(t2[2], t2[3]) || 10;
+		        const span = document.createElement("span");
+		        span.textContent = item.str;
+		        span.style.left = `${t2[4]}px`;
+		        span.style.top = `${viewport.height - t2[5] - fontHeight}px`;
+		        span.style.fontSize = `${fontHeight}px`;
+		        layer.appendChild(span);
+		      }
 		    })().catch((e2) => {
 		      if (!cancelled) setView({ kind: "error", error: errMsg(e2) });
 		    });
@@ -84917,6 +85537,37 @@ window.__ModuleLoader__.load({
 		      cancelled = true;
 		    };
 		  }, [view.kind]);
+		  const quoteTextSelection = () => {
+		    if (view.kind !== "text") return;
+		    const pre = preRef.current;
+		    const sel = window.getSelection();
+		    if (pre === null || sel === null || sel.rangeCount === 0 || sel.isCollapsed) {
+		      toastStore.show("\u5148\u5728\u9884\u89C8\u91CC\u9009\u4E2D\u8981\u5F15\u7528\u7684\u884C");
+		      return;
+		    }
+		    const range = sel.getRangeAt(0);
+		    const before = document.createRange();
+		    before.selectNodeContents(pre);
+		    before.setEnd(range.startContainer, range.startOffset);
+		    const uptoEnd = document.createRange();
+		    uptoEnd.selectNodeContents(pre);
+		    uptoEnd.setEnd(range.endContainer, range.endOffset);
+		    const lines2 = selectionToLines(view.content, before.toString().length, uptoEnd.toString().length, offset + 1);
+		    if (lines2 === null) {
+		      toastStore.show("\u5148\u5728\u9884\u89C8\u91CC\u9009\u4E2D\u8981\u5F15\u7528\u7684\u884C");
+		      return;
+		    }
+		    referenceOrCopyText(formatLineReference(preview?.path ?? "", lines2.start, lines2.end, lines2.text));
+		  };
+		  const quotePdfSelection = () => {
+		    const sel = window.getSelection();
+		    const picked = sel !== null ? sel.toString() : "";
+		    if (picked.trim() === "") {
+		      toastStore.show("\u5148\u5728 PDF \u6587\u672C\u5C42\u9009\u4E2D\u8981\u5F15\u7528\u7684\u5185\u5BB9");
+		      return;
+		    }
+		    referenceOrCopyText(formatPageReference(preview?.path ?? "", 1, picked));
+		  };
 		  if (preview === null) return null;
 		  const name = preview.name;
 		  const isRasterImage = RASTER_IMAGE_EXTS.has(extOf(name));
@@ -84968,7 +85619,8 @@ window.__ModuleLoader__.load({
 		      binary: "\u4E8C\u8FDB\u5236\u6587\u4EF6\uFF08\u524D 8KB \u542B NUL\uFF09\uFF0C\u4E0D\u652F\u6301\u6587\u672C\u9884\u89C8",
 		      "image-oversize": `\u56FE\u7247\u8D85\u8FC7 ${Math.round(PREVIEW_IMAGE_MAX_BYTES / 1024)}KB\uFF08base64 \u5185\u8054\u4E0A\u9650\uFF09\uFF0C\u4E0D\u5728\u9762\u677F\u5185\u663E\u793A`,
 		      "image-nob64": "\u5185\u6838\u672A\u8FD4\u56DE\u56FE\u7247\u5B57\u8282\uFF08content_base64 \u7F3A\u5931\uFF09",
-		      "pdf-nob64": "\u5185\u6838\u672A\u8FD4\u56DE PDF \u5B57\u8282\uFF08content_base64 \u7F3A\u5931\uFF09\uFF0C\u65E0\u6CD5\u6E32\u67D3"
+		      "pdf-nob64": "\u5185\u6838\u672A\u8FD4\u56DE PDF \u5B57\u8282\uFF08content_base64 \u7F3A\u5931\uFF09\uFF0C\u65E0\u6CD5\u6E32\u67D3",
+		      "video-oversize": `\u89C6\u9891\u8D85\u8FC7 ${Math.round(PREVIEW_VIDEO_MAX_BYTES / 1024 / 1024)}MB\uFF08\u9762\u677F\u5185\u64AD\u653E\u4E0A\u9650\uFF09\uFF0C\u4E0D\u5728\u9762\u677F\u5185\u64AD\u653E`
 		    };
 		    body = (0, import_react.createElement)(
 		      "div",
@@ -84981,12 +85633,18 @@ window.__ModuleLoader__.load({
 		  } else if (view.kind === "pdf") {
 		    body = (0, import_react.createElement)(
 		      "div",
-		      { className: "rc-pvbody" },
-		      (0, import_react.createElement)("canvas", { className: "rc-pvcanvas", ref: canvasRef }),
+		      { className: "rc-pvbody", style: { textAlign: "center" } },
 		      (0, import_react.createElement)(
 		        "div",
-		        { className: "rc-pvinfo", style: { marginTop: 6, textAlign: "center" } },
-		        `PDF \u7B2C 1 \u9875 / \u5171 ${view.pages} \u9875`
+		        { className: "rc-pdfwrap" },
+		        (0, import_react.createElement)("canvas", { className: "rc-pvcanvas", ref: canvasRef }),
+		        (0, import_react.createElement)("div", { className: "rc-pvtext", ref: textLayerRef, title: "\u53EF\u5728\u6B64\u9009\u4E2D\u6587\u672C\u540E\u5F15\u7528" })
+		      ),
+		      (0, import_react.createElement)(
+		        "div",
+		        { className: "rc-pvinfo", style: { marginTop: 6, textAlign: "center", display: "flex", gap: 8, alignItems: "center" } },
+		        (0, import_react.createElement)("span", null, `PDF \u7B2C 1 \u9875 / \u5171 ${view.pages} \u9875`),
+		        (0, import_react.createElement)("button", { className: "rc-btn", style: { padding: "3px 10px" }, onClick: quotePdfSelection }, "\u5F15\u7528\u6240\u9009")
 		      )
 		    );
 		  } else if (view.kind === "image") {
@@ -85007,6 +85665,20 @@ window.__ModuleLoader__.load({
 		      "div",
 		      { className: "rc-pvbody rc-pvrich" },
 		      VendorBody !== null ? (0, import_react.createElement)(VendorBody, { content: { data: view.data }, resourceAddress: preview.path, t: null }) : (0, import_react.createElement)("div", { className: "rc-ph" }, `\u9884\u89C8\u7EC4\u4EF6\u7F3A\u5931\uFF1A${view.id}`)
+		    );
+		  } else if (view.kind === "archive") {
+		    body = (0, import_react.createElement)(ArchiveBrowser, { path: preview.path, name, bytes: view.data });
+		  } else if (view.kind === "media") {
+		    body = (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-pvbody rc-pvmedia" },
+		      view.isVideo ? (0, import_react.createElement)("video", { src: view.src, controls: true, preload: "metadata" }) : (0, import_react.createElement)(
+		        "div",
+		        { style: { display: "flex", flexDirection: "column", gap: 6, alignItems: "center" } },
+		        (0, import_react.createElement)("div", { className: "rc-prev-t" }, `\u266A ${name}`),
+		        (0, import_react.createElement)("audio", { src: view.src, controls: true, preload: "metadata" })
+		      ),
+		      (0, import_react.createElement)("div", { className: "rc-pvinfo" }, `${view.mime} \xB7 ${fmtBytes(view.bytes)} \xB7 blob URL`)
 		    );
 		  } else {
 		    const start = offset + 1;
@@ -85043,12 +85715,13 @@ window.__ModuleLoader__.load({
 		          "span",
 		          { className: "rc-pvinfo" },
 		          view.totalLines === 0 ? "\u7A7A\u6587\u4EF6" : `\u884C ${start}\u2013${end} / ${view.totalLines}`
-		        )
+		        ),
+		        (0, import_react.createElement)("button", { className: "rc-btn", onClick: quoteTextSelection }, "\u5F15\u7528\u6240\u9009")
 		      ),
 		      (0, import_react.createElement)(
 		        "div",
 		        { className: "rc-pvbody" },
-		        (0, import_react.createElement)("pre", { className: "rc-pvpre" }, view.content)
+		        (0, import_react.createElement)("pre", { className: "rc-pvpre", ref: preRef }, view.content)
 		      )
 		    );
 		  }
@@ -85072,8 +85745,7 @@ window.__ModuleLoader__.load({
 		    (0, import_react.createElement)("button", { className: "rc-btn", onClick: filesClosePreview }, "\xD7 \u5173\u95ED")
 		  );
 		}
-		function referenceOrCopy(path) {
-		  const text = formatReference([path]);
+		function referenceOrCopyText(text) {
 		  if (text === "") return;
 		  if (insertReferenceText(text)) {
 		    toastStore.show("\u5DF2\u8FFD\u52A0\u5230\u8F93\u5165\u6846");
@@ -85081,12 +85753,15 @@ window.__ModuleLoader__.load({
 		  }
 		  void navigator.clipboard.writeText(text).then(
 		    () => {
-		      toastStore.show("\u5DF2\u590D\u5236\u8DEF\u5F84\uFF08\u8F93\u5165\u6846\u672A\u5C31\u7EEA\uFF09");
+		      toastStore.show("\u5DF2\u590D\u5236\uFF08\u8F93\u5165\u6846\u672A\u5C31\u7EEA\uFF09");
 		    },
 		    () => {
 		      toastStore.show("\u590D\u5236\u5931\u8D25\uFF08\u526A\u8D34\u677F\u6743\u9650\uFF09\uFF0C\u8BF7\u624B\u52A8\u590D\u5236");
 		    }
 		  );
+		}
+		function referenceOrCopy(path) {
+		  referenceOrCopyText(formatReference([path]));
 		}
 		var FILE_DRAG_MIME = "application/x-anyfind-file";
 		var TREE_WALK_MAX_DEPTH = 4;
@@ -85354,6 +86029,158 @@ window.__ModuleLoader__.load({
 		    op === "newFile" ? `\u5DF2\u65B0\u5EFA\u6587\u4EF6 ${newName}` : `\u5DF2\u65B0\u5EFA\u6587\u4EF6\u5939 ${newName}`
 		  );
 		}
+		var renameStore = {
+		  state: null,
+		  listeners: /* @__PURE__ */ new Set(),
+		  open(path) {
+		    renameStore.state = { path, value: fsBasename(path) };
+		    for (const l2 of renameStore.listeners) l2();
+		  },
+		  cancel() {
+		    if (renameStore.state === null) return;
+		    renameStore.state = null;
+		    for (const l2 of renameStore.listeners) l2();
+		  },
+		  subscribe(fn2) {
+		    renameStore.listeners.add(fn2);
+		    return () => {
+		      renameStore.listeners.delete(fn2);
+		    };
+		  },
+		  get() {
+		    return renameStore.state;
+		  }
+		};
+		function commitInlineRename(path, nextValue) {
+		  const oldName = fsBasename(path);
+		  const newName = nextValue.trim();
+		  if (newName === "") {
+		    toastStore.show("\u65B0\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
+		    return;
+		  }
+		  if (newName === oldName) return;
+		  if (invalidName(newName)) return;
+		  void runFileOp({ op: "rename", paths: [path], target: fsParent(path), newName }, `\u5DF2\u91CD\u547D\u540D\u4E3A ${newName}`);
+		}
+		function RenameEditor({ path, initial, wide }) {
+		  const [value, setValue] = (0, import_react.useState)(initial);
+		  return (0, import_react.createElement)("input", {
+		    className: "rc-frename",
+		    style: wide === true ? { flex: "none", width: "60%" } : void 0,
+		    value,
+		    spellCheck: false,
+		    autoFocus: true,
+		    "aria-label": "\u91CD\u547D\u540D",
+		    onClick: (e2) => {
+		      e2.stopPropagation();
+		    },
+		    onDoubleClick: (e2) => {
+		      e2.stopPropagation();
+		    },
+		    onDragStart: (e2) => {
+		      e2.stopPropagation();
+		    },
+		    onChange: (e2) => {
+		      setValue(e2.target.value);
+		    },
+		    onBlur: () => {
+		      renameStore.cancel();
+		    },
+		    onKeyDown: (e2) => {
+		      if (e2.key === "Enter") {
+		        e2.preventDefault();
+		        renameStore.cancel();
+		        commitInlineRename(path, value);
+		        return;
+		      }
+		      if (e2.key === "Escape") {
+		        e2.preventDefault();
+		        e2.stopPropagation();
+		        renameStore.cancel();
+		      }
+		    }
+		  });
+		}
+		var clipStore = {
+		  state: null,
+		  listeners: /* @__PURE__ */ new Set(),
+		  set(state) {
+		    clipStore.state = state;
+		    for (const l2 of clipStore.listeners) l2();
+		  },
+		  subscribe(fn2) {
+		    clipStore.listeners.add(fn2);
+		    return () => {
+		      clipStore.listeners.delete(fn2);
+		    };
+		  },
+		  get() {
+		    return clipStore.state;
+		  }
+		};
+		function pasteClip() {
+		  const clip = clipStore.state;
+		  const tab = findTab(files.state, files.state.activeId);
+		  const dir = tab !== null ? currentDir(tab) : null;
+		  if (clip === null || dir === null || dir === HOME_PATH) {
+		    toastStore.show("\u6CA1\u6709\u53EF\u7C98\u8D34\u7684\u5185\u5BB9\uFF0C\u6216\u4E0D\u5728\u5177\u4F53\u76EE\u5F55\u91CC");
+		    return;
+		  }
+		  clipStore.set(null);
+		  void runFileOp(
+		    { op: clip.op, paths: clip.paths, target: dir },
+		    clip.op === "copy" ? `\u5DF2\u590D\u5236 ${clip.paths.length} \u9879\u5230 ${dir}` : `\u5DF2\u79FB\u52A8 ${clip.paths.length} \u9879\u5230 ${dir}`
+		  );
+		}
+		function BatchBarHost() {
+		  const st2 = (0, import_react.useSyncExternalStore)(filesSubscribe, filesGetSnapshot);
+		  const clip = (0, import_react.useSyncExternalStore)(clipStore.subscribe, clipStore.get);
+		  const tab = findTab(st2, st2.activeId);
+		  const multi = tab?.multi ?? [];
+		  if (multi.length === 0 && clip === null) return null;
+		  if (multi.length === 0 && clip !== null) {
+		    return (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-batch" },
+		      (0, import_react.createElement)(
+		        "span",
+		        { className: "rc-batch-n" },
+		        `${clip.op === "copy" ? "\u5DF2\u590D\u5236" : "\u5DF2\u526A\u5207"} ${clip.paths.length} \u9879\uFF08\u6682\u5B58\uFF09`
+		      )
+		    );
+		  }
+		  return (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-batch", role: "toolbar", "aria-label": "\u6279\u91CF\u64CD\u4F5C" },
+		    (0, import_react.createElement)("span", { className: "rc-batch-n" }, `\u5DF2\u9009 ${multi.length} \u9879\uFF08Ctrl/Shift \u591A\u9009\uFF0C\u2264${FILE_OP_MAX_PATHS}\uFF09`),
+		    (0, import_react.createElement)("button", { className: "rc-btn", onClick: () => {
+		      clipStore.set({ op: "copy", paths: [...multi] });
+		      toastStore.show(`\u5DF2\u6682\u5B58 ${multi.length} \u9879\uFF0C\u53BB\u76EE\u6807\u76EE\u5F55\u70B9\u300C\u7C98\u8D34\u300D`);
+		    } }, "\u29C9 \u590D\u5236"),
+		    (0, import_react.createElement)("button", { className: "rc-btn", onClick: () => {
+		      clipStore.set({ op: "cut", paths: [...multi] });
+		      toastStore.show(`\u5DF2\u6682\u5B58\uFF08\u526A\u5207\uFF09${multi.length} \u9879\uFF0C\u53BB\u76EE\u6807\u76EE\u5F55\u70B9\u300C\u7C98\u8D34\u300D`);
+		    } }, "\u2702 \u526A\u5207"),
+		    clip !== null ? (0, import_react.createElement)(
+		      "button",
+		      { className: "rc-btn rc-btn-pri", onClick: pasteClip },
+		      `\u7C98\u8D34 ${clip.paths.length} \u9879`
+		    ) : null,
+		    (0, import_react.createElement)("button", { className: "rc-btn", onClick: () => {
+		      menuCopyPaths(multi);
+		    } }, "\u29C9 \u590D\u5236\u8DEF\u5F84"),
+		    (0, import_react.createElement)("button", {
+		      className: "rc-btn danger",
+		      style: { color: "var(--rc-err)" },
+		      onClick: () => {
+		        menuRecycle(multi);
+		      }
+		    }, "\u{1F5D1} \u5220\u9664\uFF08\u56DE\u6536\u7AD9\uFF09"),
+		    (0, import_react.createElement)("button", { className: "rc-btn", onClick: () => {
+		      filesSelect(null);
+		    } }, "\u2715 \u6E05\u9664\u9009\u62E9")
+		  );
+		}
 		function openContextMenu(e2, path, newDir, isDirTarget) {
 		  e2.preventDefault();
 		  const paths = filesContextSelect(path);
@@ -85427,21 +86254,267 @@ window.__ModuleLoader__.load({
 		    )
 		  );
 		}
+		function favoritesLocate(it2) {
+		  overlayStore.show();
+		  overlayStore.setView("files");
+		  if (files.state.tabs.length === 0) filesNewTab(DEFAULT_ROOT);
+		  if (it2.isDir) {
+		    filesNavigate(it2.path);
+		    return;
+		  }
+		  filesNavigate(fsParent(it2.path));
+		  filesSelect(it2.path);
+		  filesOpenPreview(it2.path, it2.name, false, -1);
+		}
+		function FavoritesPanel() {
+		  const items = (0, import_react.useSyncExternalStore)(favoritesSubscribe, favoritesGet);
+		  const toast = (0, import_react.useSyncExternalStore)(toastStore.subscribe, toastStore.get);
+		  const [dragFrom, setDragFrom] = (0, import_react.useState)(null);
+		  const [overIdx, setOverIdx] = (0, import_react.useState)(null);
+		  return (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-panel" },
+		    (0, import_react.createElement)(StyleTag),
+		    (0, import_react.createElement)(
+		      "div",
+		      { className: "rc-fav" },
+		      (0, import_react.createElement)(
+		        "div",
+		        { className: "rc-fav-head" },
+		        (0, import_react.createElement)("span", { style: { fontWeight: 700 } }, `\u6536\u85CF\uFF08${items.length}\uFF09`),
+		        (0, import_react.createElement)("span", null, "\u62D6\u62FD\u6392\u5E8F \xB7 \u70B9\u51FB\u5B9A\u4F4D\u5230\u6587\u4EF6\u89C6\u56FE"),
+		        items.length > 0 ? (0, import_react.createElement)("button", {
+		          className: "rc-btn",
+		          style: { marginLeft: "auto", padding: "4px 10px" },
+		          onClick: () => {
+		            if (!window.confirm(`\u786E\u5B9A\u6E05\u7A7A\u5168\u90E8 ${items.length} \u6761\u6536\u85CF\uFF1F`)) return;
+		            for (const it2 of [...items].reverse()) favoritesRemoveItem(it2.path);
+		          }
+		        }, "\u6E05\u7A7A") : null
+		      ),
+		      items.length === 0 ? (0, import_react.createElement)(
+		        "div",
+		        { className: "rc-fav-empty" },
+		        (0, import_react.createElement)("span", { style: { fontSize: 24, color: "#f5b301" } }, "\u2606"),
+		        (0, import_react.createElement)("div", null, "\u8FD8\u6CA1\u6709\u6536\u85CF"),
+		        (0, import_react.createElement)("div", null, "\u5728\u6587\u4EF6\u6811\u6216\u641C\u7D22\u7ED3\u679C\u884C\u70B9 \u2606 \u6536\u85CF\u5E38\u7528\u4F4D\u7F6E\uFF08localStorage \u6301\u4E45\u5316\uFF0C\u8DE8\u6807\u7B7E\u9875\u5171\u4EAB\uFF09")
+		      ) : (0, import_react.createElement)(
+		        "div",
+		        { className: "rc-fav-list" },
+		        ...items.map((it2, i2) => (0, import_react.createElement)(
+		          "div",
+		          {
+		            key: it2.path,
+		            className: `rc-favrow${overIdx === i2 ? " drop" : ""}`,
+		            title: `${it2.path}
+		\uFF08\u62D6\u62FD\u6392\u5E8F / \u70B9\u51FB\u5B9A\u4F4D\uFF09`,
+		            draggable: true,
+		            onClick: () => {
+		              favoritesLocate(it2);
+		            },
+		            onDragStart: () => {
+		              setDragFrom(i2);
+		            },
+		            onDragOver: (e2) => {
+		              e2.preventDefault();
+		              if (overIdx !== i2) setOverIdx(i2);
+		            },
+		            onDragLeave: () => {
+		              if (overIdx === i2) setOverIdx(null);
+		            },
+		            onDrop: (e2) => {
+		              e2.preventDefault();
+		              if (dragFrom !== null && dragFrom !== i2) favoritesMoveItem(dragFrom, i2);
+		              setDragFrom(null);
+		              setOverIdx(null);
+		            },
+		            onDragEnd: () => {
+		              setDragFrom(null);
+		              setOverIdx(null);
+		            }
+		          },
+		          (0, import_react.createElement)("span", { className: "rc-fico" }, it2.isDir ? "\u25B8" : "\xB7"),
+		          (0, import_react.createElement)("span", { className: "rc-fname" }, it2.name),
+		          (0, import_react.createElement)("span", { className: "rc-fav-path" }, it2.path),
+		          (0, import_react.createElement)("button", {
+		            className: "rc-btn",
+		            style: { padding: "2px 8px", flex: "none" },
+		            title: "\u53D6\u6D88\u6536\u85CF",
+		            onClick: (e2) => {
+		              e2.stopPropagation();
+		              favoritesRemoveItem(it2.path);
+		            }
+		          }, "\xD7")
+		        ))
+		      )
+		    ),
+		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null
+		  );
+		}
 		function FileTreePanel() {
 		  const st2 = (0, import_react.useSyncExternalStore)(filesSubscribe, filesGetSnapshot);
 		  const toast = (0, import_react.useSyncExternalStore)(toastStore.subscribe, toastStore.get);
+		  const favs = (0, import_react.useSyncExternalStore)(favoritesSubscribe, favoritesGet);
+		  const renaming = (0, import_react.useSyncExternalStore)(renameStore.subscribe, renameStore.get);
+		  const clip = (0, import_react.useSyncExternalStore)(clipStore.subscribe, clipStore.get);
+		  const drives = (0, import_react.useSyncExternalStore)(drivesSubscribe, drivesGetSnapshot);
 		  const tab = findTab(st2, st2.activeId);
+		  const isHome = tab !== null && currentDir(tab) === HOME_PATH;
 		  const current = tab !== null ? currentDir(tab) : null;
-		  const list = current !== null ? st2.lists[current] : void 0;
+		  const list = current !== null && current !== HOME_PATH ? st2.lists[current] : void 0;
 		  const [draft, setDraft] = (0, import_react.useState)("");
 		  (0, import_react.useEffect)(() => {
-		    setDraft(current ?? "");
+		    setDraft(current === HOME_PATH ? "" : current ?? "");
 		  }, [current]);
 		  (0, import_react.useEffect)(() => {
+		    if (current === HOME_PATH) {
+		      drivesEnsureLoaded();
+		      return;
+		    }
 		    if (current !== null) filesEnsureLoaded(current);
 		  }, [current]);
-		  const rows = current !== null && list?.status === "ready" ? buildFileRows(st2, current) : [];
+		  const rows = current !== null && current !== HOME_PATH && list?.status === "ready" ? buildFileRows(st2, current) : [];
+		  const entryRows = rows.filter((r2) => r2.kind === "entry");
+		  const entryIdx = new Map(entryRows.map((r2, i2) => [r2.key, i2]));
 		  const truncatedNote = list?.status === "ready" && list.truncated ? `\u76EE\u5F55\u6761\u76EE\u8D85\u8FC7\u4E0A\u9650\u5DF2\u622A\u65AD\uFF0C\u53EA\u663E\u793A\u524D ${list.entries.length} \u6761\uFF08\u566A\u58F0\u76EE\u5F55\u5DF2\u9690\u85CF\uFF09\u2014\u2014\u8FDB\u5165\u5B50\u76EE\u5F55\u53EF\u7EE7\u7EED\u6D4F\u89C8` : "";
+		  const driveIcon = (t2) => t2 === "fixed" ? "\u{1F4BD}" : t2 === "removable" ? "\u{1F50C}" : t2 === "cdrom" ? "\u{1F4BF}" : t2 === "ram" ? "\u26A1" : "\u2754";
+		  const drivesBody = drives.status === "loading" ? (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-loading" },
+		    (0, import_react.createElement)("div", { className: "rc-loading-t" }, (0, import_react.createElement)("span", { className: "rc-spin" }), "\u52A0\u8F7D\u76D8\u7B26\u2026")
+		  ) : drives.status === "error" ? (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-guide" },
+		    (0, import_react.createElement)("div", { className: "rc-banner rc-banner-err" }, drives.error),
+		    (0, import_react.createElement)("button", {
+		      className: "rc-btn rc-btn-pri",
+		      style: { alignSelf: "flex-start" },
+		      onClick: () => {
+		        drivesEnsureLoaded(true);
+		      }
+		    }, "\u27F3 \u91CD\u8BD5")
+		  ) : (0, import_react.createElement)(
+		    "div",
+		    { className: "rc-tree" },
+		    (0, import_react.createElement)("div", { className: "rc-fhint" }, "\u6B64\u7535\u8111 \u2014\u2014 \u70B9\u51FB\u76D8\u7B26\u8FDB\u5165\uFF1B\u8DEF\u5F84\u680F\u53EF\u76F4\u8FBE\u4EFB\u610F\u7EDD\u5BF9\u8DEF\u5F84"),
+		    ...drives.drives.map((d2) => (0, import_react.createElement)(
+		      "div",
+		      {
+		        key: d2.path,
+		        className: "rc-drive",
+		        title: `${d2.path}\uFF08${DRIVE_TYPE_LABEL[d2.type] ?? d2.type}\uFF09`,
+		        draggable: true,
+		        onDragStart: (e2) => {
+		          startFileDrag(e2, { path: d2.path, name: d2.path, type: "folder" });
+		        },
+		        onClick: () => {
+		          filesNavigate(d2.path);
+		        },
+		        onContextMenu: (e2) => {
+		          openContextMenu(e2, d2.path, d2.path, true);
+		        }
+		      },
+		      (0, import_react.createElement)("span", { className: "rc-drive-ico" }, driveIcon(d2.type)),
+		      (0, import_react.createElement)("span", { className: "rc-drive-name" }, d2.path),
+		      (0, import_react.createElement)("span", { className: "rc-drive-type" }, DRIVE_TYPE_LABEL[d2.type] ?? d2.type)
+		    ))
+		  );
+		  const treeBody = (0, import_react.createElement)("div", { className: "rc-tree" }, ...rows.map((row) => {
+		    if (row.kind !== "entry") {
+		      return (0, import_react.createElement)(
+		        "div",
+		        { key: row.key, className: "rc-frow muted", style: { paddingLeft: 18 + row.depth * 14 } },
+		        (0, import_react.createElement)("span", { className: "rc-fname" }, row.name)
+		      );
+		    }
+		    const selected = tab !== null && (tab.multi.includes(row.path) || tab.selected === row.path);
+		    const editing = renaming !== null && renaming.path === row.path;
+		    const faved = favoritesHas(favs, row.path);
+		    return (0, import_react.createElement)(
+		      "div",
+		      {
+		        key: row.key,
+		        className: `rc-frow${row.isDir ? " dir" : ""}${selected ? " sel" : ""}`,
+		        style: { paddingLeft: 10 + row.depth * 14 },
+		        title: row.path,
+		        tabIndex: 0,
+		        draggable: !editing,
+		        onDragStart: editing ? void 0 : (e2) => {
+		          startFileDrag(e2, { path: row.path, name: row.name, type: row.isDir ? "folder" : "file" });
+		        },
+		        onClick: (e2) => {
+		          if (editing) return;
+		          if (e2.ctrlKey || e2.metaKey) {
+		            e2.preventDefault();
+		            filesToggleMulti(row.path);
+		            return;
+		          }
+		          if (e2.shiftKey) {
+		            e2.preventDefault();
+		            const idx = entryIdx.get(row.key) ?? 0;
+		            const anchor = tab?.anchor ?? null;
+		            const from = anchor === null ? idx : Math.min(anchor, idx);
+		            const to2 = anchor === null ? idx : Math.max(anchor, idx);
+		            filesSetMulti(entryRows.slice(from, to2 + 1).map((r2) => r2.path), idx);
+		            return;
+		          }
+		          filesSelectWithAnchor(row.path, entryIdx.get(row.key) ?? 0);
+		          if (row.isDir) filesToggleExpand(row.path);
+		        },
+		        onDoubleClick: () => {
+		          if (!editing && row.isDir) filesNavigate(row.path);
+		        },
+		        onKeyDown: (e2) => {
+		          if (e2.key === "F2" && !editing) {
+		            e2.preventDefault();
+		            renameStore.open(row.path);
+		          }
+		        },
+		        onContextMenu: (e2) => {
+		          openContextMenu(e2, row.path, row.isDir ? row.path : current ?? fsParent(row.path), row.isDir);
+		        }
+		      },
+		      (0, import_react.createElement)("span", { className: "rc-fico" }, row.isDir ? row.expanded ? "\u25BE" : "\u25B8" : "\xB7"),
+		      editing ? (0, import_react.createElement)(RenameEditor, { path: row.path, initial: row.name }) : (0, import_react.createElement)("span", {
+		        className: "rc-fname",
+		        title: "\u53CC\u51FB\u91CD\u547D\u540D\uFF08F2 \u4EA6\u53EF\uFF09",
+		        onDoubleClick: (e2) => {
+		          e2.stopPropagation();
+		          renameStore.open(row.path);
+		        }
+		      }, row.name),
+		      row.isDir ? null : (0, import_react.createElement)("span", { className: "rc-fmeta w" }, fmtBytes(row.size)),
+		      (0, import_react.createElement)("span", { className: "rc-fmeta d" }, fmtEntryTime(row.mtime)),
+		      (0, import_react.createElement)(
+		        "span",
+		        {
+		          className: "rc-fops",
+		          onClick: (e2) => {
+		            e2.stopPropagation();
+		          }
+		        },
+		        (0, import_react.createElement)("button", {
+		          className: `rc-fav-btn${faved ? " on" : ""}`,
+		          title: faved ? "\u53D6\u6D88\u6536\u85CF" : "\u6536\u85CF",
+		          onClick: () => {
+		            favoritesToggleItem({ path: row.path, name: row.name, isDir: row.isDir });
+		          }
+		        }, faved ? "\u2605" : "\u2606"),
+		        (0, import_react.createElement)("button", {
+		          title: "\u9884\u89C8",
+		          onClick: () => {
+		            filesOpenPreview(row.path, row.name, row.isDir, row.size);
+		          }
+		        }, "\u9884\u89C8"),
+		        (0, import_react.createElement)("button", {
+		          title: "\u5F15\u7528\u5230\u8F93\u5165\u6846",
+		          onClick: () => {
+		            referenceOrCopy(row.path);
+		          }
+		        }, "\u5F15\u7528")
+		      )
+		    );
+		  }));
 		  const body = tab === null ? (0, import_react.createElement)(
 		    "div",
 		    { className: "rc-fempty" },
@@ -85450,7 +86523,7 @@ window.__ModuleLoader__.load({
 		    (0, import_react.createElement)("button", { className: "rc-btn rc-btn-pri", onClick: () => {
 		      filesNewTab();
 		    } }, "\uFF0B \u65B0\u5EFA\u6807\u7B7E")
-		  ) : list === void 0 || list.status === "loading" ? (0, import_react.createElement)(
+		  ) : isHome ? drivesBody : list === void 0 || list.status === "loading" ? (0, import_react.createElement)(
 		    "div",
 		    { className: "rc-loading" },
 		    (0, import_react.createElement)("div", { className: "rc-loading-t" }, (0, import_react.createElement)("span", { className: "rc-spin" }), "\u52A0\u8F7D\u76EE\u5F55\u2026"),
@@ -85472,67 +86545,7 @@ window.__ModuleLoader__.load({
 		        if (current !== null) filesEnsureLoaded(current, true);
 		      }
 		    }, "\u27F3 \u91CD\u8BD5")
-		  ) : (0, import_react.createElement)("div", { className: "rc-tree" }, ...rows.map((row) => {
-		    if (row.kind !== "entry") {
-		      return (0, import_react.createElement)(
-		        "div",
-		        { key: row.key, className: "rc-frow muted", style: { paddingLeft: 18 + row.depth * 14 } },
-		        (0, import_react.createElement)("span", { className: "rc-fname" }, row.name)
-		      );
-		    }
-		    const selected = tab.multi.includes(row.path) || tab.selected === row.path;
-		    return (0, import_react.createElement)(
-		      "div",
-		      {
-		        key: row.key,
-		        className: `rc-frow${row.isDir ? " dir" : ""}${selected ? " sel" : ""}`,
-		        style: { paddingLeft: 10 + row.depth * 14 },
-		        title: row.path,
-		        draggable: true,
-		        onDragStart: (e2) => {
-		          startFileDrag(e2, { path: row.path, name: row.name, type: row.isDir ? "folder" : "file" });
-		        },
-		        onClick: (e2) => {
-		          if (e2.ctrlKey || e2.metaKey) {
-		            filesToggleMulti(row.path);
-		            return;
-		          }
-		          row.isDir ? filesToggleExpand(row.path) : filesSelect(row.path);
-		        },
-		        onDoubleClick: () => {
-		          if (row.isDir) filesNavigate(row.path);
-		        },
-		        onContextMenu: (e2) => {
-		          openContextMenu(e2, row.path, row.isDir ? row.path : current ?? fsParent(row.path), row.isDir);
-		        }
-		      },
-		      (0, import_react.createElement)("span", { className: "rc-fico" }, row.isDir ? row.expanded ? "\u25BE" : "\u25B8" : "\xB7"),
-		      (0, import_react.createElement)("span", { className: "rc-fname" }, row.name),
-		      row.isDir ? null : (0, import_react.createElement)("span", { className: "rc-fmeta w" }, fmtBytes(row.size)),
-		      (0, import_react.createElement)("span", { className: "rc-fmeta d" }, fmtEntryTime(row.mtime)),
-		      (0, import_react.createElement)(
-		        "span",
-		        {
-		          className: "rc-fops",
-		          onClick: (e2) => {
-		            e2.stopPropagation();
-		          }
-		        },
-		        (0, import_react.createElement)("button", {
-		          title: "\u9884\u89C8",
-		          onClick: () => {
-		            filesOpenPreview(row.path, row.name, row.isDir);
-		          }
-		        }, "\u9884\u89C8"),
-		        (0, import_react.createElement)("button", {
-		          title: "\u5F15\u7528\u5230\u8F93\u5165\u6846",
-		          onClick: () => {
-		            referenceOrCopy(row.path);
-		          }
-		        }, "\u5F15\u7528")
-		      )
-		    );
-		  }));
+		  ) : treeBody;
 		  return (0, import_react.createElement)(
 		    "div",
 		    { className: "rc-panel" },
@@ -85542,13 +86555,14 @@ window.__ModuleLoader__.load({
 		      { className: "rc-ftabs" },
 		      ...st2.tabs.map((t2, i2) => {
 		        const active = t2.id === st2.activeId;
-		        const label = fsBasename(currentDir(t2));
+		        const dir = currentDir(t2);
+		        const label = dir === HOME_PATH ? "\u6B64\u7535\u8111" : fsBasename(dir);
 		        return (0, import_react.createElement)(
 		          "div",
 		          {
 		            key: t2.id,
 		            className: `rc-ftab${active ? " active" : ""}`,
-		            title: currentDir(t2),
+		            title: dir === HOME_PATH ? "\u6B64\u7535\u8111\uFF08\u76D8\u7B26\u5217\u8868\uFF09" : dir,
 		            onClick: () => {
 		              filesActivate(t2.id);
 		            }
@@ -85587,7 +86601,7 @@ window.__ModuleLoader__.load({
 		        className: "rc-ftab-new",
 		        title: "\u65B0\u5EFA\u6807\u7B7E",
 		        onClick: () => {
-		          filesNewTab(tab !== null ? currentDir(tab) : void 0);
+		          filesNewTab(tab !== null && !isHome ? currentDir(tab) : void 0);
 		        }
 		      }, "\uFF0B")
 		    ),
@@ -85603,6 +86617,14 @@ window.__ModuleLoader__.load({
 		          disabled: (tab?.history.length ?? 0) <= 1,
 		          onClick: filesBack
 		        }, "\u2190"),
+		        (0, import_react.createElement)("button", {
+		          className: "rc-btn",
+		          title: "\u76D8\u7B26\u9996\u9875\uFF08\u6B64\u7535\u8111\uFF09",
+		          disabled: tab === null || isHome,
+		          onClick: () => {
+		            filesGoHome();
+		          }
+		        }, "\u25A6"),
 		        (0, import_react.createElement)("input", {
 		          className: "rc-fpath",
 		          value: draft,
@@ -85620,34 +86642,33 @@ window.__ModuleLoader__.load({
 		        (0, import_react.createElement)("button", {
 		          className: "rc-btn",
 		          title: "\u5237\u65B0",
-		          disabled: current === null,
+		          disabled: tab === null,
 		          onClick: () => {
-		            if (current !== null) filesEnsureLoaded(current, true);
+		            if (isHome) drivesEnsureLoaded(true);
+		            else if (current !== null) filesEnsureLoaded(current, true);
 		          }
-		        }, "\u27F3")
+		        }, "\u27F3"),
+		        clip !== null ? (0, import_react.createElement)("button", {
+		          className: "rc-btn rc-btn-pri",
+		          title: `\u7C98\u8D34\u5230 ${current ?? ""}`,
+		          disabled: current === null || current === HOME_PATH,
+		          onClick: () => {
+		            pasteClip();
+		          }
+		        }, `\u7C98\u8D34 ${clip.paths.length} \u9879`) : null,
+		        (0, import_react.createElement)("button", {
+		          className: "rc-btn",
+		          title: "\u6536\u85CF\u9762\u677F\uFF08\u62D6\u62FD\u6392\u5E8F / \u70B9\u51FB\u5B9A\u4F4D\uFF09",
+		          onClick: () => {
+		            overlayStore.show();
+		            overlayStore.setView("favs");
+		          }
+		        }, "\u2605")
 		      ),
 		      truncatedNote !== "" ? (0, import_react.createElement)("div", { className: "rc-banner rc-banner-info" }, truncatedNote) : null,
 		      body
 		    ),
-		    st2.preview === null && tab !== null && (tab.selected !== null || tab.multi.length > 0) ? (0, import_react.createElement)(
-		      "div",
-		      { className: "rc-ffoot" },
-		      (0, import_react.createElement)(
-		        "span",
-		        { className: "rc-fsel", title: tab.multi.join("\n") },
-		        tab.multi.length > 1 ? `\u5DF2\u9009 ${tab.multi.length} \u9879` : tab.selected ?? ""
-		      ),
-		      (0, import_react.createElement)(
-		        "button",
-		        {
-		          className: "rc-btn",
-		          onClick: () => {
-		            menuCopyPaths(tab.multi.length > 0 ? tab.multi : [tab.selected ?? ""]);
-		          }
-		        },
-		        "\u590D\u5236\u8DEF\u5F84"
-		      )
-		    ) : null,
+		    (0, import_react.createElement)(BatchBarHost),
 		    toast !== "" ? (0, import_react.createElement)("div", { className: "rc-toast" }, toast) : null,
 		    (0, import_react.createElement)(FileContextMenu)
 		  );
@@ -85693,7 +86714,7 @@ window.__ModuleLoader__.load({
 		    },
 		    (0, import_react.createElement)(
 		      "div",
-		      { className: "rc-modal", role: "dialog", "aria-label": view === "files" ? "\u6587\u4EF6" : "\u7EDF\u4E00\u641C\u7D22" },
+		      { className: "rc-modal", role: "dialog", "aria-label": view === "files" ? "\u6587\u4EF6" : view === "favs" ? "\u6536\u85CF" : "\u7EDF\u4E00\u641C\u7D22" },
 		      (0, import_react.createElement)(
 		        "div",
 		        { className: "rc-ovsw", role: "tablist", "aria-label": "\u89C6\u56FE\u5207\u6362" },
@@ -85712,9 +86733,17 @@ window.__ModuleLoader__.load({
 		          onClick: () => {
 		            overlayStore.setView("files");
 		          }
-		        }, "\u6587\u4EF6")
+		        }, "\u6587\u4EF6"),
+		        (0, import_react.createElement)("button", {
+		          className: `rc-ovsw-b${view === "favs" ? " active" : ""}`,
+		          role: "tab",
+		          "aria-selected": view === "favs",
+		          onClick: () => {
+		            overlayStore.setView("favs");
+		          }
+		        }, "\u6536\u85CF")
 		      ),
-		      view === "search" ? (0, import_react.createElement)(AnyfindPanel) : (0, import_react.createElement)(FileTreePanel)
+		      view === "search" ? (0, import_react.createElement)(AnyfindPanel) : view === "favs" ? (0, import_react.createElement)(FavoritesPanel) : (0, import_react.createElement)(FileTreePanel)
 		    )
 		  );
 		}

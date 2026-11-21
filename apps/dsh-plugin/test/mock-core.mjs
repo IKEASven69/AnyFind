@@ -167,6 +167,18 @@ createServer((req, res) => {
 
   // ---- 文件端点（契约 v0.2 docs/api-contract.md）：list / stat 假数据 ----
   // read / op 不在本 mock 范围（走下方 404 兜底，用于验证代理的非 200 透传）。
+  if (url.pathname === '/api/file/drives') {
+    // 2026-11-21 v0.2 补充：盘符枚举（无参数，永远 200）。
+    // 覆盖契约 type 枚举的四个常见值 + unknown（网络盘归入）。
+    send(res, 200, { drives: [
+      { path: 'C:/', type: 'fixed' },
+      { path: 'D:/', type: 'fixed' },
+      { path: 'E:/', type: 'removable' },
+      { path: 'F:/', type: 'cdrom' },
+      { path: 'Z:/', type: 'unknown' },
+    ] })
+    return
+  }
   if (url.pathname === '/api/file/list') {
     const path = url.searchParams.get('path') ?? ''
     if (path === '') { send(res, 400, { error: 'path 必填' }); return }

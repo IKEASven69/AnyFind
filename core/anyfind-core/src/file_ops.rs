@@ -208,6 +208,91 @@ pub fn prepare_entries(mut items: Vec<Entry>, show_noise: bool, max: usize) -> (
     (items, truncated)
 }
 
+// ---------- 盘符枚举（/api/file/drives） ----------
+
+/// 盘符条目（drives 用）。`path` 形如 `"D:/"`（非 Windows 固定 `"/"`）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct DriveEntry {
+    pub path: String,
+    pub dtype: String,
+}
+
+/// Win32 GetDriveTypeW 返回值 → 契约 type 串。
+/// DRIVE_UNKNOWN=0 / DRIVE_NO_ROOT_DIR=1 / DRIVE_REMOTE=4 及未知值 → `"unknown"`
+/// （契约 v0.2 type 枚举仅 fixed|removable|cdrom|ram|unknown）。
+pub fn drive_type_name(dt: u32) -> &'static str {
+    match dt {
+        2 => "removable", // DRIVE_REMOVABLE
+        3 => "fixed",     // DRIVE_FIXED
+        5 => "cdrom",     // DRIVE_CDROM
+        6 => "ram",       // DRIVE_RAMDISK
+        _ => "unknown",
+    }
+}
+
+/// 盘符归一（去重键）：小写、反斜杠归一为 `/`、去尾分隔符。
+fn drive_key(p: &str) -> String {
+    let lower = p.to_lowercase().replace('\\', "/");
+    lower.trim_end_matches('/').to_string()
+}
+
+/// 盘符列表排序去重：按 path 排序（大小写不敏感、`/` 与 `\` 视为同分隔符），
+/// 归一后重复者只保留首个。GetLogicalDrivesW 位掩码天然无重复，此处兜底
+/// 防上游（配置/未来扩展）重复项漏进响应。
+pub fn sort_dedup_drives(v: Vec<DriveEntry>) -> Vec<DriveEntry> {
+    let mut sorted = v;
+    sorted.sort_by(|a, b| {
+        let ka = drive_key(&a.path);
+        let kb = drive_key(&b.path);
+        ka.cmp(&kb).then_with(|| a.path.cmp(&b.path))
+    });
+    let mut out: Vec<DriveEntry> = Vec::with_capacity(sorted.len());
+    let mut seen: Vec<String> = Vec::with_capacity(sorted.len());
+    for d in sorted {
+        let key = drive_key(&d.path);
+        if !seen.contains(&key) {
+            seen.push(key);
+            out.push(d);
+        }
+    }
+    out
+}
+
+/// 盘符枚举（契约 GET /api/file/drives）：
+/// Windows 走 GetLogicalDrivesW 位掩码 + GetDriveTypeW（与 mft.rs/usn.rs 同一
+/// windows crate 依赖，不引新依赖）；非 Windows 固定返回根 `/`（type=fixed）。
+pub fn list_drives() -> Vec<DriveEntry> {
+    #[cfg(windows)]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+        let bits = unsafe { GetLogicalDrives() };
+        let mut out = Vec::new();
+        for i in 0..26u32 {
+            if bits & (1 << i) == 0 {
+                continue;
+            }
+            let letter = (b'A' + i as u8) as char;
+            // GetDriveTypeW 要求根路径带尾分隔符（"X:\"）。
+            let root = format!("{letter}:\\");
+            let wide: Vec<u16> = root.encode_utf16().chain(std::iter::once(0)).collect();
+            let dt = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
+            out.push(DriveEntry {
+                path: format!("{letter}:/"), // "D:/"
+                dtype: drive_type_name(dt).to_string(),
+            });
+        }
+        sort_dedup_drives(out)
+    }
+    #[cfg(not(windows))]
+    {
+        vec![DriveEntry {
+            path: "/".into(),
+            dtype: "fixed".into(),
+        }]
+    }
+}
+
 // ---------- 路径解析与 containment ----------
 
 /// 路径必须非空且绝对（Windows 盘符/UNC 由 Path 判定，反斜杠原生支持）。
@@ -725,6 +810,87 @@ mod tests {
         let (out, tr) = prepare_entries(items, false, 2);
         assert_eq!(out.len(), 2);
         assert!(!tr);
+    }
+
+    // ---- 盘符端点（/api/file/drives） ----
+
+    fn drive(path: &str, dtype: &str) -> DriveEntry {
+        DriveEntry {
+            path: path.into(),
+            dtype: dtype.into(),
+        }
+    }
+
+    #[test]
+    fn drive_type_name_maps_win32_constants() {
+        // Win32 GetDriveTypeW 返回值全集 + 越界值。
+        assert_eq!(drive_type_name(0), "unknown"); // DRIVE_UNKNOWN
+        assert_eq!(drive_type_name(1), "unknown"); // DRIVE_NO_ROOT_DIR
+        assert_eq!(drive_type_name(2), "removable"); // DRIVE_REMOVABLE
+        assert_eq!(drive_type_name(3), "fixed"); // DRIVE_FIXED
+        assert_eq!(drive_type_name(4), "unknown"); // DRIVE_REMOTE（契约无 network 值）
+        assert_eq!(drive_type_name(5), "cdrom"); // DRIVE_CDROM
+        assert_eq!(drive_type_name(6), "ram"); // DRIVE_RAMDISK
+        assert_eq!(drive_type_name(7), "unknown"); // 未定义值
+        assert_eq!(drive_type_name(u32::MAX), "unknown");
+    }
+
+    #[test]
+    fn sort_dedup_drives_orders_and_dedups() {
+        // 大小写不敏感排序（乱序输入 → 盘符序）。
+        let out = sort_dedup_drives(vec![drive("E:/", "cdrom"), drive("C:/", "fixed"), drive("D:/", "removable")]);
+        assert_eq!(
+            out.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+            vec!["C:/", "D:/", "E:/"]
+        );
+        // 归一化去重：大小写 / 反斜杠 / 尾分隔符视为同一盘符，保留排序后首个。
+        let out = sort_dedup_drives(vec![drive("D:\\", "fixed"), drive("d:/", "fixed"), drive("D:", "fixed")]);
+        assert_eq!(out.len(), 1);
+        // 保留的是排序比较中的首项（`D:` 短路径排序在最前）。
+        assert_eq!(out[0].path, "D:");
+        // 完全同键重复也只留一个。
+        let out = sort_dedup_drives(vec![drive("C:/", "fixed"), drive("C:/", "fixed")]);
+        assert_eq!(out.len(), 1);
+        // 不同盘符不受影响，dtype 原样保留。
+        let out = sort_dedup_drives(vec![drive("Z:/", "ram"), drive("a:/", "removable")]);
+        assert_eq!(
+            out,
+            vec![drive("a:/", "removable"), drive("Z:/", "ram")]
+        );
+        // 空输入 → 空输出。
+        assert!(sort_dedup_drives(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn list_drives_contract_shape() {
+        let drives = list_drives();
+        #[cfg(windows)]
+        {
+            // GetLogicalDrivesW 位掩码来源：路径必为 "X:/" 形态且互不重复，type 在契约枚举内。
+            let allowed = ["fixed", "removable", "cdrom", "ram", "unknown"];
+            let mut keys = Vec::new();
+            for d in &drives {
+                assert_eq!(d.path.len(), 3, "path 应为 X:/ 形态: {}", d.path);
+                assert!(d.path.ends_with(":/"), "path 应以 :/ 结尾: {}", d.path);
+                assert!(d.path[..1].chars().all(|c| c.is_ascii_uppercase()));
+                assert!(allowed.contains(&d.dtype.as_str()), "type 越界: {}", d.dtype);
+                keys.push(d.path.to_lowercase());
+            }
+            let mut sorted = keys.clone();
+            sorted.sort();
+            assert_eq!(keys, sorted, "应按盘符排序");
+            // 去重后数量一致。
+            keys.sort();
+            keys.dedup();
+            assert_eq!(keys.len(), drives.len());
+            // 本机至少有一个盘（测试机必有系统盘）。
+            assert!(!drives.is_empty());
+        }
+        #[cfg(not(windows))]
+        {
+            // 非 Windows：固定 [{path: "/", type: "fixed"}]。
+            assert_eq!(drives, vec![drive("/", "fixed")]);
+        }
     }
 
     // ---- containment / 根 ----

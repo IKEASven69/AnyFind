@@ -2,21 +2,26 @@
  * dsh-anyfind host 半：把 filefind 统一搜索内核接进 dsh。
  * 注册面：
  *   - webServer 代理路由 /dsh-anyfind/api/{health,search,resume,config} 与
- *     /dsh-anyfind/api/file/{list,read,stat,op}（文件端点状态码原样透传）
+ *     /dsh-anyfind/api/file/{list,read,stat,op,drives}（文件端点状态码原样透传）
  *     （面板同源调用，避开浏览器直连 127.0.0.1:8790 的 CORS 问题）；
  *   - agent 工具 anyfind_search（ctx.tools）；
- *   - 斜杠命令 /anyfind（ctx.commands，结构子集类型，免依赖 dsh-commands）。
+ *   - 斜杠命令 /anyfind（ctx.commands，结构子集类型，免依赖 dsh-commands）；
+ *   - 宿主内 MCP server anyfind（ctx.mcpManager，stdio `anyfindd mcp`，
+ *     三工具 anyfind_search/anyfind_file_read/anyfind_file_stat，真身
+ *     core/anyfindd/src/mcp.rs tools_list）。
  * @module dsh-anyfind
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, isAbsolute, join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-// Type-only: pulls the Context.tools / Context.webServer merges（宿主提供，不打进产物）。
+// Type-only: pulls the Context.tools / Context.webServer / Context.mcpManager merges（宿主提供，不打进产物）。
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-mcp-manager'
+import type { McpServerRegistration } from '@deepseek-ai/dsh-mcp-manager'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
   KernelDownError, KERNEL_DOWN_HINT, formatForAgent, formatForCommand,
@@ -24,9 +29,15 @@ import {
 } from './core.ts'
 import type { RawResponse } from './core.ts'
 
-/** 插件配置（cordis.patch.yml config 节）：内核地址。 */
+/** 插件配置（cordis.patch.yml config 节）：内核地址 + 宿主内 MCP 注册。 */
 export interface Config {
   endpoint?: string
+  /** 宿主内 MCP 注册总开关（缺省开；false = 不注册 stdio server）。 */
+  mcp?: boolean
+  /** anyfindd 可执行路径（缺省自动发现：桌面端 sidecar → 开发仓构建产物）。 */
+  mcpCommand?: string
+  /** 传给 anyfindd 的参数（缺省 ["mcp", "--no-index"]——只读共享索引，写者留给桌面端）。 */
+  mcpArgs?: string[]
 }
 
 export const name = 'dsh-anyfind'
@@ -121,6 +132,74 @@ function registerAnyfindTool(ctx: Context): void {
       return r.ok ? r.agentText : r.text
     },
   })), 'dsh-anyfind: anyfind_search')
+}
+
+// ---------------------------------------------------------------------------
+// 宿主内 MCP 注册：dsh 宿主的 mcpManager 服务（@deepseek-ai/dsh-mcp-manager）。
+// 注册的不是三把工具本身，而是一个 stdio MCP server entry——宿主经
+// mcp-manager/mcp-client 拉起 `anyfindd mcp` 子进程，tools/list 由该进程的
+// core/anyfindd/src/mcp.rs 提供下面三把工具（真身 mcp.rs:218-264 tools_list）。
+// ---------------------------------------------------------------------------
+
+/** mcpManager.register 的 server 名（同时是宿主工具 namespace）。 */
+export const MCP_SERVER_NAME = 'anyfind'
+/** `anyfindd mcp` stdio server 暴露的工具（镜像声明，对齐 mcp.rs tools_list；宿主侧以 namespace 前缀挂载）。 */
+export const MCP_TOOL_NAMES = ['anyfind_search', 'anyfind_file_read', 'anyfind_file_stat'] as const
+
+/** 缺省注册 args：`mcp --no-index` —— stdio 子进程只读共享索引（WAL 多进程
+ * 读安全，mcp.rs:467-487），写者留给桌面端 anyfindd；需要 dsh 独立建库时
+ * 用 config.mcpArgs 去掉 --no-index。 */
+const DEFAULT_MCP_ARGS: readonly string[] = ['mcp', '--no-index']
+
+/** anyfindd.exe 候选位置（按序探测）：桌面端 sidecar（Tauri NSIS 装在
+ * %LOCALAPPDATA%/Programs/AnyFind/）→ 开发仓 release 构建产物（桌面端
+ * dev 模式同款回退，apps/desktop/src-tauri/src/lib.rs:143-152）。 */
+function anyfinddCandidates(): string[] {
+  const out: string[] = []
+  if (process.env.LOCALAPPDATA !== undefined && process.env.LOCALAPPDATA !== '') {
+    out.push(join(process.env.LOCALAPPDATA, 'Programs', 'AnyFind', 'anyfindd.exe'))
+  }
+  out.push('D:/coding/anyfind/core/target/release/anyfindd.exe')
+  return out
+}
+
+/**
+ * 发现 anyfindd 可执行路径：显式 command 优先原样采用（不探测存在，路径
+ * 错误交由宿主 spawn/连接失败报错）；否则按序取第一个真实存在的候选文件；
+ * 全缺 → ''（调用方跳过注册并告警）。纯函数 + 可注入候选，selftest 直接断言。
+ */
+export function discoverAnyfindd(command?: string, candidates?: readonly string[]): string {
+  if (typeof command === 'string' && command.trim() !== '') return command.trim()
+  for (const c of candidates ?? anyfinddCandidates()) {
+    try {
+      if (statSync(c).isFile()) return c
+    } catch { /* 候选不存在，继续探测下一个 */ }
+  }
+  return ''
+}
+
+/**
+ * 注册宿主内 MCP server。mcpManager 服务缺席（宿主未装 mcp-manager 插件）
+ * 时 ctx.inject 不触发本函数，插件其余功能不受影响（与 tools/commands/
+ * webServer 同一「服务缺席优雅跳过」策略）。
+ */
+function registerMcpServer(scope: Context, config: Config | undefined): void {
+  const command = discoverAnyfindd(config?.mcpCommand)
+  if (command === '') {
+    scope.logger.warn('dsh-anyfind: 未找到 anyfindd 可执行文件，跳过宿主内 MCP 注册（config.mcpCommand 可显式指定路径）')
+    return
+  }
+  const entry: McpServerRegistration = {
+    transport: 'stdio',
+    command,
+    args: [...(config?.mcpArgs ?? DEFAULT_MCP_ARGS)],
+  }
+  // register(name, entry)：名字即 namespace，注册即 enabled，返回幂等 disposer；
+  // registration 随本插件生命周期存续（卸载自动撤回工具），无需手动 dispose。
+  scope.mcpManager.register(MCP_SERVER_NAME, entry)
+  scope.logger.info(
+    `dsh-anyfind: 宿主内 MCP server "${MCP_SERVER_NAME}" 已注册（${command} ${entry.args?.join(' ') ?? ''}；工具 ${MCP_TOOL_NAMES.join(' / ')}）`,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -344,8 +423,9 @@ function registerRoutes(ctx: Context, host: Context): Array<() => void> {
         )
       },
     }),
-    // 文件端点（契约 v0.2）：query 原样转发，参数与响应结构同内核。
-    ...(['list', 'read', 'stat'] as const).map((name) => host.webServer.register({
+    // 文件端点（契约 v0.2）：query 原样转发，参数与响应结构同内核
+    //（drives 无参数，query 为空串照拼）。
+    ...(['list', 'read', 'stat', 'drives'] as const).map((name) => host.webServer.register({
       kind: 'exact',
       path: `/dsh-anyfind/api/file/${name}`,
       handler: (request, response) => {
@@ -493,6 +573,13 @@ export function apply(ctx: Context, config?: Config): void {
     registerAnyfindTool(tc)
   })
 
+  // 宿主内 MCP server（mcpManager 服务缺席时静默跳过；config.mcp=false 可关）。
+  if (config?.mcp !== false) {
+    ctx.inject(['mcpManager'], (mc) => {
+      registerMcpServer(mc, config)
+    })
+  }
+
   // 斜杠命令 /anyfind：commands 服务缺席（无交互 UI 的组合）时静默跳过。
   ctx.inject(['commands'], (cc) => {
     const commands = (cc as unknown as { commands?: CommandsRegistryLike }).commands
@@ -518,9 +605,23 @@ export function apply(ctx: Context, config?: Config): void {
 
 // 自测/调试面：共享搜索动作从此出口透出（宿主运行时不依赖）。
 export { runSearch }
+// 宿主内 MCP 注册面：discoverAnyfindd / MCP_SERVER_NAME / MCP_TOOL_NAMES 已在
+// 定义处直接 export（selftest 从 lib/index.js 直接断言），不再重复导出。
 // 引用格式化 / 目录树文本（纯函数）：selftest 从 lib/index.js 直接断言。
 export { buildTreeText, formatReference, TREE_MAX_LINES } from './core.ts'
 export type { PreviewTreeNode } from './core.ts'
 // file/op 请求校验（纯函数）：批量上限等断言从 lib/index.js 取。
 export { FILE_OPS, FILE_OP_MAX_PATHS, validateFileOpRequest } from './core.ts'
 export type { FileOp, FileOpRequest } from './core.ts'
+// 收藏夹纯函数（浏览器半 localStorage store 的载荷约定）：selftest 断言增删/去重/排序。
+export {
+  DRIVE_TYPE_LABEL, FAVORITES_KEY, FAVORITES_MAX, favoritesAdd, favoritesHas, favoritesMove, favoritesRemove,
+  favoritesToggle, normalizeFavorites,
+} from './core.ts'
+export type { FavoriteItem } from './core.ts'
+// 压缩包条目格式化 + 划词引用格式化（纯函数）：client 浏览器半与 selftest 共用。
+export {
+  formatArchiveEntry, formatArchiveEntryReference, formatLineReference, formatPageReference, formatSize,
+  selectionToLines,
+} from './core.ts'
+export type { ArchiveEntryLike } from './core.ts'

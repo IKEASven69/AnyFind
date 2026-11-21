@@ -3,6 +3,7 @@
 > 2026-10-20。三路并行开发的对接契约：内核（server.py）实现方、桌面 UI 方、dsh 插件方都以此为准。
 > 扩展字段允许，破坏本契约的改动必须三方同步。实现细节可协商，但端点路径、请求参数名、响应字段名固定。
 > 2026-11-13 v0.2：新增 `/api/file/{list,read,stat,op}` 文件端点（见下）；旧端点文档不变。
+> 2026-11-21 v0.2 补充：新增 `GET /api/file/drives` 盘符端点（见下）。
 
 ## 服务
 
@@ -91,7 +92,7 @@
 
 ## 文件端点（v0.2）
 
-四个端点共享的规则：
+四个端点共享的规则（`/api/file/drives` 无 `path` 参数，不受这些约束）：
 
 - `path`/`target` 必须是绝对路径（Windows 盘符、UNC、正/反斜杠均可），需 URL 编码；相对路径 → `400 {"error"}`
 - 路径先归一再访问：`.`/`..` 词法消解、符号链接逐级跟随（深度 ≤ 32，超限 → 404 `{"error"}`）；不存在 / 不可读 → `404 {"error"}`
@@ -171,6 +172,21 @@
 - `name` = 路径最后一段（根路径如 `D:\` 回显原路径）
 - 错误：`400 {"error"}` 缺 `path` 或非绝对路径；`404 {"error"}` 不存在
 
+### GET /api/file/drives
+
+无参数。返回本机盘符列表（文件浏览器的根导航入口）。
+
+→ `200`：
+
+```json
+{"drives": [{"path": "C:/", "type": "fixed"}, {"path": "D:/", "type": "fixed"}, {"path": "E:/", "type": "removable"}]}
+```
+
+- Windows：`GetLogicalDrivesW` 位掩码 + `GetDriveTypeW`；`path` 形如 `"D:/"`（盘符大写 + `:/`），按盘符排序、去重
+- `type` 枚举：`fixed`（本地硬盘）| `removable`（可移动盘/U 盘）| `cdrom`（光驱）| `ram`（内存盘）| `unknown`（网络盘 `DRIVE_REMOTE`、未识别 `DRIVE_UNKNOWN`、无效根 `DRIVE_NO_ROOT_DIR` 统一归入）
+- 非 Windows：固定返回 `[{"path": "/", "type": "fixed"}]`
+- 纯枚举端点：永远 `200`，无 4xx 分支（不访问具体路径）
+
 ### POST /api/file/op
 
 请求体：`{"op": "...", "paths": ["..."], "target"?: "...", "newName"?: "..."}`
@@ -203,7 +219,7 @@
 - `500 {"error"}`：执行器启动或输出解析失败（内核内部错误，正常环境不应出现）
 - `recycle` 的对象若 canonicalize 后是根路径（`D:\`、UNC 共享根）→ `400` 拒绝
 
-dsh 插件同源代理 `/dsh-anyfind/api/file/{list,read,stat,op}` 转发本组端点，参数与响应结构同内核（代理路由由插件阶段实现，内核侧不感知）。
+dsh 插件同源代理 `/dsh-anyfind/api/file/{list,read,stat,op,drives}` 转发本组端点，参数与响应结构同内核（代理路由由插件阶段实现，内核侧不感知）。
 
 ## 数据源归属约定
 

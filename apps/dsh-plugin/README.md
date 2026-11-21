@@ -16,6 +16,7 @@ AnyFind 接入 DeepSeek Harness（dsh）：**Ctrl+K 全局搜索** + agent 工�
 |---|---|
 | **斜杠命令** | `/anyfind 配置` 看当前内核地址；`/anyfind <查询>` 直接搜 |
 | **agent 工具** | `anyfind_search` —— agent 主动召回历史会话、文件、记忆、skills |
+| **宿主内 MCP** | 装有 `dsh-mcp-manager` 的宿主自动注册 stdio server `anyfind`（`anyfindd mcp --no-index`），三工具 `anyfind_search` / `anyfind_file_read` / `anyfind_file_stat` 进宿主 MCP 面；config `mcp`/`mcpCommand`/`mcpArgs` 可调，详见 `docs/provider-integration.md` |
 | **Ctrl+K 浮层** | 客户端侧全局搜索面板（装了桌面端或内核后可用） |
 
 查询 DSL（v1）：裸词 AND、`"短语"`、`OR`、`-排除`，以及字段过滤：

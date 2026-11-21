@@ -1,5 +1,5 @@
 //! anyfindd：HTTP daemon，实现 docs/api-contract.md v0.2。
-//! 端点：GET /api/health /api/search /api/session/{id} /api/file/{list,read,stat}；
+//! 端点：GET /api/health /api/search /api/session/{id} /api/file/{list,read,stat,drives}；
 //!       POST /api/resume /api/reindex /api/file/op。
 //! 默认端口 8790（契约），--port 可配。
 //! MCP 子命令：`anyfindd mcp [--db <path>] [--no-index]`——stdio JSON-RPC 2.0，
@@ -802,6 +802,16 @@ fn file_read(rq: tiny_http::Request, qs: &std::collections::HashMap<String, Stri
     );
 }
 
+/// GET /api/file/drives：盘符列表（Windows GetLogicalDrivesW + GetDriveTypeW，
+/// 非 Windows 固定 `"/"` fixed）。无参数，永远 200。
+fn file_drives(rq: tiny_http::Request) {
+    let drives: Vec<serde_json::Value> = file_ops::list_drives()
+        .into_iter()
+        .map(|d| serde_json::json!({"path": d.path, "type": d.dtype}))
+        .collect();
+    send_json(rq, 200, &serde_json::json!({"drives": drives}));
+}
+
 /// GET /api/file/stat：单路径元信息。
 fn file_stat(rq: tiny_http::Request, qs: &std::collections::HashMap<String, String>) {
     let (raw, resolved) = match resolve_path_param(qs) {
@@ -1230,6 +1240,9 @@ fn handle_get(
         "/api/file/stat" => {
             let qs = parse_query(query);
             file_stat(rq, &qs);
+        }
+        "/api/file/drives" => {
+            file_drives(rq);
         }
         _ => send_json(rq, 404, &serde_json::json!({"error": "not found"})),
     }

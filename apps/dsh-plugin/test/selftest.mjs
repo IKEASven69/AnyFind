@@ -2,23 +2,39 @@
 //   启动 mock 内核（test/mock-core.mjs，契约假数据）→ 以假 cordis ctx 加载
 //   lib/index.js（捕获 tools/commands/webServer 注册面）→ 逐个打：
 //   anyfind_search 工具、/anyfind 斜杠命令、/dsh-anyfind/api/* 代理路由、
-//   /dsh-anyfind/api/file/{list,read,stat,op} 文件端点透传（契约 v0.2，op 含
-//   成功/单 path 失败两态与 4xx；read 含 format=base64 字节通路）、
+//   /dsh-anyfind/api/file/{list,read,stat,op,drives} 文件端点透传（契约 v0.2，
+//   op 含成功/单 path 失败两态与 4xx；read 含 format=base64 字节通路；
+//   drives 为 2026-11-21 补充的盘符枚举）、
 //   /api/file/bytes 预览字节端点、
 //   /api/office/pdf 转换端点（officeKit 缺席 → 503 降级）、批量上限校验纯函数、
 //   lib/client.js 工厂求值（vendor 预览 react 注入）、
 //   内核 down 的友好降级。
 // 用法：npm run build && npm run selftest
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { deflateRawSync } from 'node:zlib'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const MOCK_PORT = 18765
+// 固定端口会与本机无关应用撞车（实测：veyra_qml_ui.exe 占用 18765 导致 mock
+// EADDRINUSE 退出、selftest 挂在启动段）——改绑 :0 由内核分配空闲端口。
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.unref()
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+  })
+}
+const MOCK_PORT = await findFreePort()
 const MOCK_ENDPOINT = `http://127.0.0.1:${MOCK_PORT}`
 
 let passed = 0
@@ -29,8 +45,15 @@ function check(name, cond, detail = '') {
 }
 
 console.log('▶ 桌面端内核地址自动发现：')
-const { discoverEndpoint, formatReference, buildTreeText, TREE_MAX_LINES, FILE_OP_MAX_PATHS, validateFileOpRequest } =
-  await import('../lib/index.js')
+const {
+  discoverEndpoint, discoverAnyfindd, MCP_SERVER_NAME, MCP_TOOL_NAMES, formatReference, buildTreeText,
+  TREE_MAX_LINES, FILE_OP_MAX_PATHS, validateFileOpRequest,
+  // 收藏夹纯函数（文件工作台六件①：localStorage 载荷约定）
+  FAVORITES_KEY, FAVORITES_MAX, normalizeFavorites, favoritesAdd, favoritesRemove, favoritesMove,
+  favoritesToggle, favoritesHas, DRIVE_TYPE_LABEL,
+  // 压缩包条目格式化（④）+ 划词引用格式化（⑥）
+  formatArchiveEntry, formatArchiveEntryReference, formatLineReference, formatPageReference, selectionToLines,
+} = await import('../lib/index.js')
 const discoveryDir = mkdtempSync(join(tmpdir(), 'anyfind-discovery-'))
 const discoveryConfig = join(discoveryDir, 'config.json')
 writeFileSync(discoveryConfig, JSON.stringify({ kernel_url: 'http://127.0.0.1:19321/' }))
@@ -39,11 +62,26 @@ writeFileSync(discoveryConfig, '{broken')
 check('配置损坏时安全回退默认地址', discoverEndpoint(discoveryConfig) === 'http://127.0.0.1:8790')
 rmSync(discoveryDir, { recursive: true, force: true })
 
+console.log('▶ anyfindd 可执行发现（纯函数，宿主内 MCP 注册用）：')
+check('显式 command 原样采用（不探测存在）', discoverAnyfindd('  C:/custom/anyfindd.exe ') === 'C:/custom/anyfindd.exe')
+check('空白 command 不算显式（落回候选探测）', discoverAnyfindd('  ', ['C:/missing/anyfindd.exe']) === '')
+const probeDir = mkdtempSync(join(tmpdir(), 'anyfind-mcp-probe-'))
+const present = join(probeDir, 'anyfindd.exe')
+writeFileSync(present, '')
+check('候选按序取第一个真实文件', discoverAnyfindd(undefined, ['C:/missing/a.exe', present, 'C:/missing/b.exe']) === present)
+mkdirSync(join(probeDir, 'dir-like'))
+check('目录不算可执行候选', discoverAnyfindd(undefined, [join(probeDir, 'dir-like')]) === '')
+check('候选全缺返回空串（调用方跳过注册）', discoverAnyfindd(undefined, ['C:/missing/a.exe', 'C:/missing/b.exe']) === '')
+rmSync(probeDir, { recursive: true, force: true })
+check('MCP 工具镜像声明与 mcp.rs tools_list 对齐（三工具）',
+  MCP_SERVER_NAME === 'anyfind' &&
+  [...MCP_TOOL_NAMES].join(',') === 'anyfind_search,anyfind_file_read,anyfind_file_stat')
+
 // ---------------------------------------------------------------------------
 // 假 cordis ctx：捕获注册面
 // ---------------------------------------------------------------------------
 
-const registered = { tools: new Map(), commands: new Map(), routes: new Map() }
+const registered = { tools: new Map(), commands: new Map(), routes: new Map(), mcp: new Map() }
 
 function makeScope(services) {
   return {
@@ -62,6 +100,9 @@ function pick(names) {
     if (n === 'commands') services.commands = { register(def) { registered.commands.set(def.name, def); return () => {} } }
     if (n === 'webServer') services.webServer = {
       register(route) { registered.routes.set(route.path, route); return () => {} },
+    }
+    if (n === 'mcpManager') services.mcpManager = {
+      register(name, entry) { registered.mcp.set(name, entry); return () => { registered.mcp.delete(name) } },
     }
   }
   return services
@@ -98,8 +139,18 @@ function fakeRes() {
     statusCode: 0,
     headers: {},
     body: '',
+    /** 二进制响应（file/bytes 等 sendBinary）保留原始字节；文本仍走 body 字符串。 */
+    buffer: null,
     writeHead(code, headers = {}) { this.statusCode = code; this.headers = headers },
-    end(chunk = '') { this.body = String(chunk) },
+    end(chunk = '') {
+      if (typeof chunk === 'string') {
+        this.body = chunk
+        this.buffer = Buffer.from(chunk, 'utf8')
+      } else {
+        this.buffer = Buffer.from(chunk)
+        this.body = ''
+      }
+    },
     json() { return JSON.parse(this.body) },
   }
 }
@@ -140,7 +191,7 @@ try {
   for (const p of ['/dsh-anyfind/api/health', '/dsh-anyfind/api/search', '/dsh-anyfind/api/resume', '/dsh-anyfind/api/config']) {
     check(`路由 ${p} 已注册`, registered.routes.has(p))
   }
-  for (const p of ['/dsh-anyfind/api/file/list', '/dsh-anyfind/api/file/read', '/dsh-anyfind/api/file/stat', '/dsh-anyfind/api/file/op']) {
+  for (const p of ['/dsh-anyfind/api/file/list', '/dsh-anyfind/api/file/read', '/dsh-anyfind/api/file/stat', '/dsh-anyfind/api/file/op', '/dsh-anyfind/api/file/drives']) {
     check(`文件路由 ${p} 已注册`, registered.routes.has(p))
   }
   for (const p of ['/dsh-anyfind/api/file/bytes', '/dsh-anyfind/api/office/pdf']) {
@@ -148,6 +199,29 @@ try {
   }
   const tool = registered.tools.get('anyfind_search')
   check('工具描述含使用时机指引', typeof tool.description === 'string' && tool.description.includes('以前'))
+
+  console.log('▶ 宿主内 MCP 注册（mcpManager 注册面）：')
+  const mcpEntry = registered.mcp.get('anyfind')
+  check('stdio server anyfind 已注册', mcpEntry !== undefined)
+  check('transport=stdio 且 command 非空（发现 anyfindd）',
+    mcpEntry?.transport === 'stdio' && typeof mcpEntry?.command === 'string' && mcpEntry.command !== '')
+  check('command 与 discoverAnyfindd() 一致（本机候选探测）', mcpEntry?.command === discoverAnyfindd(undefined))
+  check('缺省 args = mcp --no-index（只读共享索引）',
+    JSON.stringify(mcpEntry?.args) === JSON.stringify(['mcp', '--no-index']), JSON.stringify(mcpEntry?.args))
+  check('stdio entry 不带 url/headers 字段（mcp-manager 校验规则）',
+    mcpEntry?.url === undefined && mcpEntry?.headers === undefined)
+  // config 开关与透传：mcp=false 不注册；mcpCommand/mcpArgs 原样透传进 entry。
+  registered.mcp.clear()
+  apply(rootCtx, { endpoint: MOCK_ENDPOINT, mcp: false })
+  check('config.mcp=false 跳过注册', !registered.mcp.has('anyfind'))
+  apply(rootCtx, { endpoint: MOCK_ENDPOINT, mcpCommand: 'X:/bin/anyfindd.exe', mcpArgs: ['mcp'] })
+  const mcpCustom = registered.mcp.get('anyfind')
+  check('mcpCommand/mcpArgs 透传（显式路径不探测存在）',
+    mcpCustom?.command === 'X:/bin/anyfindd.exe' && JSON.stringify(mcpCustom?.args) === JSON.stringify(['mcp']))
+  // 回到默认注册，后续段落沿用默认 entry。
+  apply(rootCtx, { endpoint: MOCK_ENDPOINT })
+  check('恢复默认注册（缺省 args 回到 --no-index）',
+    JSON.stringify(registered.mcp.get('anyfind')?.args) === JSON.stringify(['mcp', '--no-index']))
 
   console.log('▶ anyfind_search 工具（内核在线）：')
   const toolOut = await tool.execute({ query: 'nginx' }, {})
@@ -227,6 +301,17 @@ try {
   })
   check('GET file/stat 不存在 → 404 透传',
     statMissing.statusCode === 404 && typeof statMissing.json().error === 'string')
+
+  console.log('▶ 盘符端点（file/drives 透传，契约 v0.2 2026-11-21 补充）：')
+  const drivesOk = await callRoute('/dsh-anyfind/api/file/drives')
+  const drives = drivesOk.statusCode === 200 ? drivesOk.json().drives : []
+  check('GET file/drives 200 透传 drives 数组', drivesOk.statusCode === 200 && Array.isArray(drives), drivesOk.body)
+  check('file/drives 条目结构（path "X:/" + type 枚举）',
+    drives.length === 5 && drives[0].path === 'C:/' && drives[0].type === 'fixed'
+      && drives.some((d) => d.type === 'removable') && drives.some((d) => d.type === 'cdrom')
+      && drives.some((d) => d.type === 'unknown'), drivesOk.body)
+  check('file/drives 按盘符排序（C ≤ D ≤ E ≤ F ≤ Z）',
+    drives.map((d) => d.path).join(',') === 'C:/,D:/,E:/,F:/,Z:/', drivesOk.body)
 
   const listNoPath = await callRoute('/dsh-anyfind/api/file/list')
   check('非法参数：缺 path → 400 + error',
@@ -385,8 +470,10 @@ try {
     query: q({ path: `${PLUGIN_ROOT}/README.md` }),
   })
   const realReadme = readFileSync(`${PLUGIN_ROOT}/README.md`, 'utf8')
+  // sendBinary 走 Buffer：fakeRes 二进制保留在 .buffer（body 仅文本响应有值）。
   check('file/bytes 200 且字节与磁盘一致',
-    bytesOk.statusCode === 200 && bytesOk.body === realReadme, `status=${bytesOk.statusCode}`)
+    bytesOk.statusCode === 200 && bytesOk.buffer !== null
+      && bytesOk.buffer.toString('utf8') === realReadme, `status=${bytesOk.statusCode}`)
   const bytesMissing = await callRoute('/dsh-anyfind/api/file/bytes', { query: q({ path: 'D:/no/such.bin' }) })
   check('file/bytes 不存在 → 404 + error', bytesMissing.statusCode === 404 && typeof bytesMissing.json().error === 'string')
   const bytesRelative = await callRoute('/dsh-anyfind/api/file/bytes', { query: 'path=relative/file.bin' })
@@ -451,6 +538,163 @@ try {
   }])
   check('文本树多层缩进续接', nestedTree.includes('└─ d1')
     && nestedTree.includes('   └─ d2') && nestedTree.includes('      └─ x'), JSON.stringify(nestedTree))
+
+  console.log('▶ 收藏夹纯函数（文件工作台①：localStorage(anyfind.favorites) 载荷约定）：')
+  check('FAVORITES_KEY === anyfind.favorites（任务约定键）', FAVORITES_KEY === 'anyfind.favorites')
+  const favA = { path: 'D:/coding/a', name: 'a', isDir: true, addedAt: 1 }
+  const favB = { path: 'D:/coding/b.txt', name: 'b.txt', isDir: false, addedAt: 2 }
+  const favC = { path: 'D:/coding/c', name: 'c', isDir: true, addedAt: 3 }
+  let favList = favoritesAdd(favoritesAdd(favoritesAdd([], favA), favB), favC)
+  check('favoritesAdd 头插且保序', favList.map((x) => x.name).join(',') === 'c,b.txt,a')
+  check('favoritesAdd 去重（已收藏返回同一引用）', favoritesAdd(favList, favA) === favList)
+  check('favoritesHas 命中（trim 后比较）', favoritesHas(favList, ' D:/coding/b.txt ') === true
+    && favoritesHas(favList, 'D:/missing') === false)
+  check('favoritesRemove 移除', favoritesRemove(favList, 'D:/coding/a').map((x) => x.name).join(',') === 'c,b.txt')
+  check('favoritesRemove 缺席返回同一引用', favoritesRemove(favList, 'D:/missing') === favList)
+  check('favoritesToggle 在册移除/不在册收藏',
+    favoritesToggle(favList, favB).map((x) => x.name).join(',') === 'c,a'
+    && favoritesToggle(favoritesRemove(favList, favB.path), favB).map((x) => x.name).join(',') === 'b.txt,c,a')
+  check('favoritesMove 拖拽排序 0→2', favoritesMove(favList, 0, 2).map((x) => x.name).join(',') === 'b.txt,a,c')
+  check('favoritesMove 非法/原位返回同一引用',
+    favoritesMove(favList, -1, 0) === favList && favoritesMove(favList, 0, 0) === favList
+      && favoritesMove([], 0, 1).length === 0)
+  check('FAVORITES_MAX === 200 且 add 截断丢最旧',
+    FAVORITES_MAX === 200 && (() => {
+      let many = []
+      for (let i = 0; i < 205; i++) many = favoritesAdd(many, { path: `D:/f${i}`, name: `f${i}`, isDir: false, addedAt: i })
+      return many.length === 200 && many[0].path === 'D:/f204' && many[199].path === 'D:/f5'
+    })())
+  check('normalizeFavorites 过滤畸形项 + 去重 + 截断',
+    (() => {
+      const good = { path: 'D:/x', name: 'x', isDir: false, addedAt: 9 }
+      const out = normalizeFavorites(['junk', null, 5, good, { ...good }, { path: '  ', name: 'blank', isDir: false, addedAt: 1 }])
+      return out.length === 1 && out[0].path === 'D:/x'
+    })())
+  check('normalizeFavorites 非 JSON 数组载荷 → 空列表',
+    normalizeFavorites(null).length === 0 && normalizeFavorites('{bad').length === 0)
+  check('盘符类型 label 覆盖契约五枚举',
+    Object.keys(DRIVE_TYPE_LABEL).join(',') === 'fixed,removable,cdrom,ram,unknown')
+
+  console.log('▶ 压缩包浏览（文件工作台④：bytes 端点 → vendor archive 解析/条目格式化）：')
+  // 最小 ZIP 构造器：stored(method 0) + deflate(method 8) 条目，真实 CRC32
+  // （readZipEntry 默认 verifyCrc，伪造 CRC 会挂"校验不一致"备注）。
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256)
+    for (let i = 0; i < 256; i++) {
+      let c = i
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+      t[i] = c >>> 0
+    }
+    return t
+  })()
+  function crc32Of(buf) {
+    let c = 0xffffffff
+    for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b }
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b }
+  function buildZip(entries) {
+    const locals = []
+    const centrals = []
+    let offset = 0
+    for (const e of entries) {
+      const nameB = Buffer.from(e.dir === true ? `${e.name}/` : e.name, 'utf8')
+      const raw = e.dir === true ? Buffer.alloc(0) : Buffer.from(e.data, 'utf8')
+      const method = e.method ?? 0
+      const comp = method === 8 ? deflateRawSync(raw) : raw
+      const crc = crc32Of(raw)
+      const local = Buffer.concat([
+        u32(0x04034b50), u16(20), u16(0), u16(method), u16(0), u16(0), u32(crc),
+        u32(comp.length), u32(raw.length), u16(nameB.length), u16(0), nameB, comp,
+      ])
+      locals.push(local)
+      centrals.push(Buffer.concat([
+        u32(0x02014b50), u16(20), u16(20), u16(0), u16(method), u16(0), u16(0), u32(crc),
+        u32(comp.length), u32(raw.length), u16(nameB.length), u16(0), u16(0), u16(0), u16(0),
+        u32(0), u32(offset), nameB,
+      ]))
+      offset += local.length
+    }
+    const cd = Buffer.concat(centrals)
+    const eocd = Buffer.concat([
+      u32(0x06054b50), u16(0), u16(0), u16(entries.length), u16(entries.length),
+      u32(cd.length), u32(offset), u16(0),
+    ])
+    return Buffer.concat([...locals, cd, eocd])
+  }
+  const DEFLATED_TEXT = 'deflate payload 行'.repeat(50)
+  const zipBuf = buildZip([
+    { name: 'docs', dir: true },
+    { name: 'docs/readme.txt', data: 'archive readme line1\nline2\nline3' },
+    { name: 'src/main.js', data: 'console.log("hi")' },
+    { name: 'src/deflated.txt', data: DEFLATED_TEXT, method: 8 },
+  ])
+  const archDir = mkdtempSync(join(tmpdir(), 'anyfind-arch-'))
+  const zipPath = join(archDir, 'fixture.zip').replace(/\\/g, '/')
+  writeFileSync(zipPath, zipBuf)
+  const archBytesRes = await callRoute('/dsh-anyfind/api/file/bytes', { query: q({ path: zipPath }) })
+  check('file/bytes 取回 ZIP 字节（与构造字节一致）',
+    archBytesRes.statusCode === 200 && archBytesRes.buffer !== null
+      && Buffer.compare(archBytesRes.buffer, zipBuf) === 0, `status=${archBytesRes.statusCode}`)
+  const arch = await import('../src/vendor/archive/index.js')
+  const zipBytes = new Uint8Array(archBytesRes.buffer.buffer, archBytesRes.buffer.byteOffset, archBytesRes.buffer.byteLength)
+  const archList = await arch.listArchive(zipBytes, { filename: 'fixture.zip' })
+  check('listArchive(zip) 识别 format=zip 且 4 条目',
+    archList.supported === true && archList.format === 'zip' && archList.entries.length === 4,
+    JSON.stringify({ supported: archList.supported, format: archList.format, n: archList.entries.length }))
+  const archPaths = archList.entries.map((e) => e.path).join(',')
+  check('条目路径含目录项（vendor normalize 去尾 /）与嵌套文件',
+    archPaths === 'docs,docs/readme.txt,src/main.js,src/deflated.txt'
+      && archList.entries[0].dir === true, archPaths)
+  const readmeEntry = archList.entries.find((e) => e.path === 'docs/readme.txt')
+  const deflatedEntry = archList.entries.find((e) => e.path === 'src/deflated.txt')
+  const readmeText = await arch.readEntryText(zipBytes, readmeEntry)
+  check('readEntryText stored 条目还原文本（method 0）',
+    readmeText.text === 'archive readme line1\nline2\nline3', JSON.stringify(readmeText.text))
+  const deflatedText = await arch.readEntryText(zipBytes, deflatedEntry)
+  check('readEntryText deflate 条目还原（DecompressionStream deflate-raw，method 8）',
+    deflatedText.text === DEFLATED_TEXT, `${deflatedText.text.length} vs ${DEFLATED_TEXT.length}`)
+  const archTree = arch.buildTree(archList.entries)
+  check('buildTree 目录树（docs/src 两支，子条目按码点排序挂靠）',
+    archTree.children.map((c) => c.name).join(',') === 'docs,src'
+      && archTree.children[0].children[0].name === 'readme.txt'
+      && archTree.children[1].children.map((c) => c.name).join(',') === 'deflated.txt,main.js',
+    JSON.stringify(archTree.children.map((c) => [c.name, c.children?.map((x) => x.name)])))
+  check('formatArchiveEntry 文件条目（名字/大小/方法）',
+    formatArchiveEntry({ path: 'src/main.js', dir: false, size: 19, method: 'stored' }) === 'src/main.js  19 B  stored',
+    formatArchiveEntry({ path: 'src/main.js', dir: false, size: 19, method: 'stored' }))
+  check('formatArchiveEntry 目录条目（尾 / 与 — 占位）',
+    formatArchiveEntry({ path: 'docs', dir: true }) === 'docs/  —')
+  check('formatArchiveEntry 加密条目带标记',
+    formatArchiveEntry({ path: 'e.bin', dir: false, size: 5, method: 'deflate', encrypted: true }).endsWith('·已加密'))
+  check('formatArchiveEntryReference 格式 path!/entry（按钮与拖拽共用）',
+    formatArchiveEntryReference('D:/tmp/fixture.zip', 'docs/readme.txt') === 'D:/tmp/fixture.zip!/docs/readme.txt')
+  check('formatArchiveEntryReference 去首斜杠/空串防御',
+    formatArchiveEntryReference('D:/a.zip', '/abs/path') === 'D:/a.zip!/abs/path'
+      && formatArchiveEntryReference('', 'x') === '' && formatArchiveEntryReference('D:/a.zip', '/') === '')
+  rmSync(archDir, { recursive: true, force: true })
+
+  console.log('▶ 划词引用格式化（文件工作台⑥：selectionToLines / 行号 / 页码引用）：')
+  const doc = 'l1\nl2\nl3\nl4\nl5'
+  const selMid = selectionToLines(doc, 3, 8, 1)
+  check('selectionToLines 偏移→行号区间（1-based，含首行号窗口起点）',
+    selMid !== null && selMid.start === 2 && selMid.end === 3 && selMid.text === 'l2\nl3', JSON.stringify(selMid))
+  check('selectionToLines collapsed → null', selectionToLines(doc, 3, 3, 1) === null)
+  const selAll = selectionToLines(doc, -5, 99, 5)
+  check('selectionToLines 偏移双向 clamp（分页窗口起始行 5）',
+    selAll !== null && selAll.start === 5 && selAll.end === 9 && selAll.text === doc, JSON.stringify(selAll))
+  check('formatLineReference 路径:起-止 + 首行摘要',
+    formatLineReference('D:/coding/a.ts', 2, 3, 'l2\nl3') === 'D:/coding/a.ts:2-3\n> l2')
+  check('formatLineReference 摘要跳过空行取第一个非空行',
+    formatLineReference('p.md', 1, 2, '\n   \nsecond line') === 'p.md:1-2\n> second line')
+  check('formatLineReference 空选区/空白选区 → 空串',
+    formatLineReference('p', 1, 1, '') === '' && formatLineReference('p', 1, 1, '  \n ') === '')
+  check('formatLineReference 超长摘要截断 160 字 + …',
+    formatLineReference('p', 1, 1, `${'x'.repeat(200)}\nrest`) === `p:1-1\n> ${'x'.repeat(160)}…`)
+  check('formatPageReference 路径:第 N 页 + 首行摘要',
+    formatPageReference('D:/s/slide.pdf', 3, '标题行\n正文') === 'D:/s/slide.pdf:第 3 页\n> 标题行')
+  check('formatPageReference 空选区 → 空串', formatPageReference('p.pdf', 1, '   ') === '')
 
 
   console.log('▶ 客户端产物工厂（lib/client.js：vendor 预览 react 注入求值）：')

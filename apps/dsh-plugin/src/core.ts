@@ -18,6 +18,7 @@ export interface Hit {
   kind: string
   title: string | null
   path: string | null
+  is_dir: boolean | null
   snippet: string | null
   mtime: string | null
   agent: string | null
@@ -188,6 +189,17 @@ export interface FileOpResponse {
   results: FileOpResult[]
 }
 
+/** 契约：GET /api/file/drives 200 条目（Windows 盘符；非 Windows 固定 "/"）。 */
+export interface DriveEntry {
+  path: string
+  type: 'fixed' | 'removable' | 'cdrom' | 'ram' | 'unknown'
+}
+
+/** 契约：GET /api/file/drives 200 响应。 */
+export interface FileDrivesResponse {
+  drives: DriveEntry[]
+}
+
 /** 内核原始回包：状态码与体原样带回（400/404/413/501 不改写）。 */
 export interface RawResponse {
   status: number
@@ -207,10 +219,10 @@ async function rawRequest(path: string, init: RequestInit, timeoutMs: number): P
   return { status: res.status, body }
 }
 
-const FILE_GET_PATHS = new Set(['/api/file/list', '/api/file/read', '/api/file/stat'])
+const FILE_GET_PATHS = new Set(['/api/file/list', '/api/file/read', '/api/file/stat', '/api/file/drives'])
 
 /**
- * 文件 GET 三端点透传：`query` 是浏览器原始 query 串（含 `?`），
+ * 文件 GET 端点透传：`query` 是浏览器原始 query 串（含 `?`），
  * 原样拼给内核——max/noise/offset/lines 的钳制与越界语义以内核为准。
  */
 export async function kernelFileGet(subpath: string, query: string, timeoutMs = 20000): Promise<RawResponse> {
@@ -335,6 +347,192 @@ export function validateFileOpRequest(body: unknown): string | null {
   }
   if (op === 'rename' && target === '') return 'rename 需要 target（所在目录）'
   return null
+}
+
+// ---------------------------------------------------------------------------
+// 收藏夹（纯函数）：localStorage 键 anyfind.favorites 的载荷约定——
+// FavoriteItem[]（JSON）。浏览器半用模块级 store 包装（持久化 + storage 事件
+// 跨 tab 同步），selftest 直接断言这些纯函数（增删/去重/拖拽排序）。
+// ---------------------------------------------------------------------------
+
+/** 契约：收藏夹 localStorage 键。 */
+export const FAVORITES_KEY = 'anyfind.favorites'
+/** 收藏条目上限（超出丢弃最旧——列表尾部）。 */
+export const FAVORITES_MAX = 200
+
+export interface FavoriteItem {
+  path: string
+  name: string
+  isDir: boolean
+  addedAt: number
+}
+
+function isFavoriteLike(x: unknown): x is FavoriteItem {
+  if (x === null || typeof x !== 'object' || Array.isArray(x)) return false
+  const it = x as Record<string, unknown>
+  return typeof it.path === 'string' && it.path.trim() !== ''
+    && typeof it.name === 'string'
+    && typeof it.isDir === 'boolean'
+    && typeof it.addedAt === 'number'
+}
+
+/** 解析 localStorage 载荷：过滤畸形项、按 path 去重、截到 FAVORITES_MAX。 */
+export function normalizeFavorites(raw: unknown): FavoriteItem[] {
+  const list = Array.isArray(raw) ? raw : []
+  const seen = new Set<string>()
+  const out: FavoriteItem[] = []
+  for (const x of list) {
+    if (out.length >= FAVORITES_MAX) break
+    if (!isFavoriteLike(x)) continue
+    const path = x.path.trim()
+    if (path === '' || seen.has(path)) continue
+    seen.add(path)
+    out.push({ path, name: x.name, isDir: x.isDir, addedAt: x.addedAt })
+  }
+  return out
+}
+
+export function favoritesHas(list: readonly FavoriteItem[], path: string): boolean {
+  const p = path.trim()
+  return p !== '' && list.some((x) => x.path === p)
+}
+
+/** 收藏（去重 + 头插 + 上限截断）：已在收藏时原样返回同一引用。 */
+export function favoritesAdd(list: readonly FavoriteItem[], item: FavoriteItem): FavoriteItem[] {
+  const path = item.path.trim()
+  if (path === '') return list as FavoriteItem[]
+  if (favoritesHas(list, path)) return list as FavoriteItem[]
+  const next = [{ ...item, path }, ...list]
+  return next.length > FAVORITES_MAX ? next.slice(0, FAVORITES_MAX) : next
+}
+
+export function favoritesRemove(list: readonly FavoriteItem[], path: string): FavoriteItem[] {
+  const p = path.trim()
+  if (p === '') return list as FavoriteItem[]
+  const next = list.filter((x) => x.path !== p)
+  return next.length === list.length ? list as FavoriteItem[] : next
+}
+
+/** 收藏/取消收藏切换（星标按钮共用）。 */
+export function favoritesToggle(list: readonly FavoriteItem[], item: FavoriteItem): FavoriteItem[] {
+  return favoritesHas(list, item.path) ? favoritesRemove(list, item.path) : favoritesAdd(list, item)
+}
+
+/** 拖拽排序：把 from 项移动到 to 位（双向 clamp，非法/原位返回同一引用）。 */
+export function favoritesMove(list: readonly FavoriteItem[], from: number, to: number): FavoriteItem[] {
+  if (list.length === 0) return list as FavoriteItem[]
+  const f = Math.trunc(from)
+  const t = Math.trunc(to)
+  if (f < 0 || f >= list.length || t < 0 || t >= list.length || f === t) return list as FavoriteItem[]
+  const next = [...list]
+  const moved = next.splice(f, 1)[0]
+  next.splice(t, 0, moved)
+  return next
+}
+
+/** 盘符 type → 展示名（file/drives 条目；client 图标与 selftest 断言共用）。 */
+export const DRIVE_TYPE_LABEL: Readonly<Record<string, string>> = Object.freeze({
+  fixed: '本地磁盘',
+  removable: '可移动磁盘',
+  cdrom: '光盘驱动器',
+  ram: '内存磁盘',
+  unknown: '其他',
+})
+
+// ---------------------------------------------------------------------------
+// 压缩包条目格式化（纯函数）：client 压缩包浏览器行展示 / selftest 断言。
+// entry 形状对齐 src/vendor/archive（path/dir/size/method/encrypted）。
+// ---------------------------------------------------------------------------
+
+/** 确定性字节数展示（core 自持；client 树行另有 fmtBytes，不互相依赖）。 */
+export function formatSize(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  return `${(n / 1024 ** 3).toFixed(2)} GB`
+}
+
+export interface ArchiveEntryLike {
+  path: string
+  dir: boolean
+  size?: number
+  method?: string
+  encrypted?: boolean
+}
+
+/** 条目单行展示：`名字/  大小  方法[ ·已加密]`（目录尾 /、大小 —）。 */
+export function formatArchiveEntry(entry: ArchiveEntryLike): string {
+  const name = entry.dir ? `${entry.path}/` : entry.path
+  const size = entry.dir ? '—' : formatSize(entry.size ?? 0)
+  const method = entry.method !== undefined && entry.method !== '' ? `  ${entry.method}` : ''
+  const enc = entry.encrypted === true ? '  ·已加密' : ''
+  return `${name}  ${size}${method}${enc}`
+}
+
+/** 压缩包条目引用串：`D:/a.zip!/dir/b.txt`（「引用」按钮与拖拽共用同一格式）。 */
+export function formatArchiveEntryReference(archivePath: string, entryPath: string): string {
+  const a = archivePath.trim()
+  const e = entryPath.replace(/^\/+/, '')
+  if (a === '' || e === '') return ''
+  return `${a}!/${e}`
+}
+
+// ---------------------------------------------------------------------------
+// 划词引用（纯函数）：文本预览选中行 → `路径:起-止`、PDF 文本层选区 →
+// `路径:第 N 页`，均附所选文本首行摘要；selftest 断言固定格式。
+// ---------------------------------------------------------------------------
+
+/** 摘要：所选文本第一个非空行，折叠空白，>160 字符截断加 …。 */
+function firstLineSummary(selectedText: string): string {
+  const lines = selectedText.split('\n')
+  for (const line of lines) {
+    const t = line.replace(/\s+/g, ' ').trim()
+    if (t !== '') return t.length > 160 ? `${t.slice(0, 160)}…` : t
+  }
+  return ''
+}
+
+/**
+ * 全文 + 选区字符偏移 → 行号区间与所选文本（collapsed 选区返回 null）。
+ * @param text 预览窗口全文（pre 的 textContent）
+ * @param start 选区起点偏移（clamp 到 [0, text.length]）
+ * @param end 选区终点偏移
+ * @param firstLineNumber 全文第一行的行号（分页窗口起点，1-based）
+ */
+export function selectionToLines(
+  text: string, start: number, end: number, firstLineNumber: number,
+): { start: number; end: number; text: string } | null {
+  const s = Math.min(Math.max(Math.trunc(start), 0), text.length)
+  const e = Math.min(Math.max(Math.trunc(end), 0), text.length)
+  if (s >= e) return null
+  const selected = text.slice(s, e)
+  const lineAt = (off: number): number => {
+    let n = 0
+    for (let i = 0; i < off; i++) if (text.charCodeAt(i) === 10) n++
+    return n
+  }
+  return {
+    start: firstLineNumber + lineAt(s),
+    end: firstLineNumber + lineAt(e - 1),
+    text: selected,
+  }
+}
+
+/** 文本划词引用：`路径:起始行-结束行` + 首行摘要行（空选区返回 ''）。 */
+export function formatLineReference(path: string, startLine: number, endLine: number, selectedText: string): string {
+  const p = path.trim()
+  const summary = firstLineSummary(selectedText)
+  if (p === '' || summary === '') return ''
+  return `${p}:${startLine}-${endLine}\n> ${summary}`
+}
+
+/** PDF 文本层划词引用：`路径:第 N 页` + 首行摘要行（空选区返回 ''）。 */
+export function formatPageReference(path: string, page: number, selectedText: string): string {
+  const p = path.trim()
+  const summary = firstLineSummary(selectedText)
+  if (p === '' || summary === '') return ''
+  return `${p}:第 ${page} 页\n> ${summary}`
 }
 
 // ---------------------------------------------------------------------------
