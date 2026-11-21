@@ -1,7 +1,7 @@
 {
   "name": "dsh-anyfind",
   "description": "AnyFind 接入 dsh：Ctrl+K 全局搜索 + agent 工具 anyfind_search + 斜杠命令 /anyfind",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

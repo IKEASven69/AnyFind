@@ -2,7 +2,7 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。dsh 插件子包（`apps/dsh-plugin`，npm 包名 `dsh-anyfind`）独立版本化。
 
-## [0.3.0] - 2026-11-20
+## [0.3.1] - 2026-11-20
 
 检索底座版本：AnyFind 从「人用的桌面搜索」升级为「agent / 插件可接入的检索底座」——dsh 插件在宿主内注册 MCP server（通道 A），配 Provider 接入指南（`docs/provider-integration.md`）；文件工作台增补六件（dsh 插件端）＋桌面三件。上轮 [未发布] 的 stdio MCP server（通道 B）随本版一并发布。
 
