@@ -1,7 +1,8 @@
 // src/index.ts
 import { readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, resolve as resolve2 } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve as resolve2 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // node_modules/@deepseek-ai/dsh-llm/lib/index.js
 import { createRequire } from "node:module";
@@ -6208,7 +6209,9 @@ var FAVORITES_MAX = 200;
 function isFavoriteLike(x) {
   if (x === null || typeof x !== "object" || Array.isArray(x)) return false;
   const it = x;
-  return typeof it.path === "string" && it.path.trim() !== "" && typeof it.name === "string" && typeof it.isDir === "boolean" && typeof it.addedAt === "number";
+  if (typeof it.path !== "string" || it.path.trim() === "" || typeof it.name !== "string") return false;
+  const dir = it.isDir ?? it.is_dir;
+  return typeof dir === "boolean";
 }
 function normalizeFavorites(raw) {
   const list = Array.isArray(raw) ? raw : [];
@@ -6220,7 +6223,9 @@ function normalizeFavorites(raw) {
     const path = x.path.trim();
     if (path === "" || seen.has(path)) continue;
     seen.add(path);
-    out.push({ path, name: x.name, isDir: x.isDir, addedAt: x.addedAt });
+    const raw2 = x;
+    const isDir = (raw2.isDir ?? raw2.is_dir) === true;
+    out.push({ path, name: raw2.name, isDir, addedAt: typeof raw2.addedAt === "number" ? raw2.addedAt : Date.now() });
   }
   return out;
 }
@@ -6435,12 +6440,28 @@ function registerAnyfindTool(ctx) {
 var MCP_SERVER_NAME = "anyfind";
 var MCP_TOOL_NAMES = ["anyfind_search", "anyfind_file_read", "anyfind_file_stat"];
 var DEFAULT_MCP_ARGS = ["mcp", "--no-index"];
-function anyfinddCandidates() {
+function repoCandidates() {
   const out = [];
+  if (process.env.ANYFINDD_EXE !== void 0 && process.env.ANYFINDD_EXE !== "") {
+    out.push(process.env.ANYFINDD_EXE);
+  }
+  try {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let i = 0; i < 6; i++) {
+      out.push(join(dir, "core", "target", "release", "anyfindd.exe"));
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+  }
+  return out;
+}
+function anyfinddCandidates() {
+  const out = repoCandidates();
   if (process.env.LOCALAPPDATA !== void 0 && process.env.LOCALAPPDATA !== "") {
     out.push(join(process.env.LOCALAPPDATA, "Programs", "AnyFind", "anyfindd.exe"));
   }
-  out.push("D:/coding/anyfind/core/target/release/anyfindd.exe");
   return out;
 }
 function discoverAnyfindd(command, candidates) {

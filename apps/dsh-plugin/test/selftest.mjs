@@ -201,15 +201,22 @@ try {
   check('工具描述含使用时机指引', typeof tool.description === 'string' && tool.description.includes('以前'))
 
   console.log('▶ 宿主内 MCP 注册（mcpManager 注册面）：')
-  const mcpEntry = registered.mcp.get('anyfind')
-  check('stdio server anyfind 已注册', mcpEntry !== undefined)
-  check('transport=stdio 且 command 非空（发现 anyfindd）',
-    mcpEntry?.transport === 'stdio' && typeof mcpEntry?.command === 'string' && mcpEntry.command !== '')
-  check('command 与 discoverAnyfindd() 一致（本机候选探测）', mcpEntry?.command === discoverAnyfindd(undefined))
-  check('缺省 args = mcp --no-index（只读共享索引）',
-    JSON.stringify(mcpEntry?.args) === JSON.stringify(['mcp', '--no-index']), JSON.stringify(mcpEntry?.args))
-  check('stdio entry 不带 url/headers 字段（mcp-manager 校验规则）',
-    mcpEntry?.url === undefined && mcpEntry?.headers === undefined)
+  // v0.3.1 终审修复：断言按发现结果条件化——干净 checkout（无 anyfindd 产物）上
+  // 跳过注册属契约行为，selftest 不再依赖开发机产物存在。
+  const discoveredAnyfindd = discoverAnyfindd(undefined)
+  if (discoveredAnyfindd !== '') {
+    const mcpEntry = registered.mcp.get('anyfind')
+    check('stdio server anyfind 已注册', mcpEntry !== undefined)
+    check('transport=stdio 且 command 非空（发现 anyfindd）',
+      mcpEntry?.transport === 'stdio' && typeof mcpEntry?.command === 'string' && mcpEntry.command !== '')
+    check('command 与 discoverAnyfindd() 一致（候选探测）', mcpEntry?.command === discoveredAnyfindd)
+    check('缺省 args = mcp --no-index（只读共享索引）',
+      JSON.stringify(mcpEntry?.args) === JSON.stringify(['mcp', '--no-index']), JSON.stringify(mcpEntry?.args))
+    check('stdio entry 不带 url/headers 字段（mcp-manager 校验规则）',
+      mcpEntry?.url === undefined && mcpEntry?.headers === undefined)
+  } else {
+    check('未发现 anyfindd：优雅跳过注册（不崩、不注册）', !registered.mcp.has('anyfind'))
+  }
   // config 开关与透传：mcp=false 不注册；mcpCommand/mcpArgs 原样透传进 entry。
   registered.mcp.clear()
   apply(rootCtx, { endpoint: MOCK_ENDPOINT, mcp: false })
@@ -218,10 +225,12 @@ try {
   const mcpCustom = registered.mcp.get('anyfind')
   check('mcpCommand/mcpArgs 透传（显式路径不探测存在）',
     mcpCustom?.command === 'X:/bin/anyfindd.exe' && JSON.stringify(mcpCustom?.args) === JSON.stringify(['mcp']))
-  // 回到默认注册，后续段落沿用默认 entry。
+  // 回到默认注册，后续段落沿用默认 entry（未发现 anyfindd 时此处本就不注册）。
   apply(rootCtx, { endpoint: MOCK_ENDPOINT })
-  check('恢复默认注册（缺省 args 回到 --no-index）',
-    JSON.stringify(registered.mcp.get('anyfind')?.args) === JSON.stringify(['mcp', '--no-index']))
+  if (discoveredAnyfindd !== '') {
+    check('恢复默认注册（缺省 args 回到 --no-index）',
+      JSON.stringify(registered.mcp.get('anyfind')?.args) === JSON.stringify(['mcp', '--no-index']))
+  }
 
   console.log('▶ anyfind_search 工具（内核在线）：')
   const toolOut = await tool.execute({ query: 'nginx' }, {})
@@ -572,6 +581,11 @@ try {
     })())
   check('normalizeFavorites 非 JSON 数组载荷 → 空列表',
     normalizeFavorites(null).length === 0 && normalizeFavorites('{bad').length === 0)
+  check('normalizeFavorites 兼容桌面端旧形态（is_dir 别名 + addedAt 缺省补齐）',
+    (() => {
+      const out = normalizeFavorites([{ path: 'D:/legacy', name: 'legacy', is_dir: true }])
+      return out.length === 1 && out[0].isDir === true && typeof out[0].addedAt === 'number'
+    })())
   check('盘符类型 label 覆盖契约五枚举',
     Object.keys(DRIVE_TYPE_LABEL).join(',') === 'fixed,removable,cdrom,ram,unknown')
 

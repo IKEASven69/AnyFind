@@ -15,7 +15,8 @@
 import { readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { extname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the Context.tools / Context.webServer / Context.mcpManager merges（宿主提供，不打进产物）。
 import type {} from '@deepseek-ai/dsh-tools'
@@ -154,12 +155,32 @@ const DEFAULT_MCP_ARGS: readonly string[] = ['mcp', '--no-index']
 /** anyfindd.exe 候选位置（按序探测）：桌面端 sidecar（Tauri NSIS 装在
  * %LOCALAPPDATA%/Programs/AnyFind/）→ 开发仓 release 构建产物（桌面端
  * dev 模式同款回退，apps/desktop/src-tauri/src/lib.rs:143-152）。 */
-function anyfinddCandidates(): string[] {
+/** 仓内相对发现：从本模块目录向上找 core/target/release/anyfindd.exe
+ * （等价桌面端 dev 回退的 CARGO_MANIFEST_DIR 形态；link:/symlink 安装仍解析到
+ * 真身目录）。环境变量 ANYFINDD_EXE 最优先（CI/hermetic selftest 用）。
+ * v0.3.1 终审修复：去掉硬编码的开发机绝对路径。 */
+function repoCandidates(): string[] {
   const out: string[] = []
+  if (process.env.ANYFINDD_EXE !== undefined && process.env.ANYFINDD_EXE !== '') {
+    out.push(process.env.ANYFINDD_EXE)
+  }
+  try {
+    let dir = dirname(fileURLToPath(import.meta.url))
+    for (let i = 0; i < 6; i++) {
+      out.push(join(dir, 'core', 'target', 'release', 'anyfindd.exe'))
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  } catch { /* import.meta.url 不可用（非 ESM 环境）时跳过仓内发现 */ }
+  return out
+}
+
+function anyfinddCandidates(): string[] {
+  const out = repoCandidates()
   if (process.env.LOCALAPPDATA !== undefined && process.env.LOCALAPPDATA !== '') {
     out.push(join(process.env.LOCALAPPDATA, 'Programs', 'AnyFind', 'anyfindd.exe'))
   }
-  out.push('D:/coding/anyfind/core/target/release/anyfindd.exe')
   return out
 }
 

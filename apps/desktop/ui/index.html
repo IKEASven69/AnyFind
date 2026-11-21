@@ -2093,8 +2093,10 @@ const FAV_KEY = "anyfind.favorites";
 function loadFavList() {
   try {
     const v = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
+    // canonical 形态 {path,name,isDir,addedAt}，兼容读旧形态 is_dir（v0.3.1 终审修复：两端载荷互通）。
     return Array.isArray(v) ? v.filter(x => x && x.path).map(x => ({
-      path: String(x.path), name: String(x.name || basename(x.path) || x.path), is_dir: !!x.is_dir,
+      path: String(x.path), name: String(x.name || basename(x.path) || x.path),
+      isDir: !!(x.isDir ?? x.is_dir), addedAt: Number(x.addedAt) || 0,
     })) : [];
   } catch (e) { return []; }
 }
@@ -2110,7 +2112,7 @@ function toggleFav(path, name, isDir) {
     FF.favorites.splice(i, 1);
     toast("已取消收藏：" + nm);
   } else {
-    FF.favorites.push({ path, name: nm, is_dir: !!isDir });
+    FF.favorites.push({ path, name: nm, isDir: !!isDir, addedAt: Date.now() });
     toast("已收藏：" + nm);
   }
   saveFavList();
@@ -2182,7 +2184,7 @@ function renderFavBar() {
 /** 点击收藏定位：目录 → 目录树定位到该目录根；文件 → 预览面板打开。 */
 function locateFav(f) {
   if (!f || !f.path) return;
-  if (f.is_dir) setTreeRoot(f.path, { silent: true });
+  if (f.isDir) setTreeRoot(f.path, { silent: true });
   else openFilePreview(f.path, f.name || basename(f.path));
 }
 

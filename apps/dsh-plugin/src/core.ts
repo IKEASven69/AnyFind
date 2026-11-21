@@ -367,16 +367,18 @@ export interface FavoriteItem {
   addedAt: number
 }
 
-function isFavoriteLike(x: unknown): x is FavoriteItem {
+/** 宽容识别（v0.3.1 终审修复）：canonical {isDir,addedAt} 与桌面端旧形态
+ * {is_dir, 无 addedAt} 均接受——两端同键 anyfind.favorites，载荷必须互通。 */
+function isFavoriteLike(x: unknown): x is { path: string; name: string; isDir: boolean; addedAt: number | undefined } {
   if (x === null || typeof x !== 'object' || Array.isArray(x)) return false
   const it = x as Record<string, unknown>
-  return typeof it.path === 'string' && it.path.trim() !== ''
-    && typeof it.name === 'string'
-    && typeof it.isDir === 'boolean'
-    && typeof it.addedAt === 'number'
+  if (typeof it.path !== 'string' || it.path.trim() === '' || typeof it.name !== 'string') return false
+  const dir = it.isDir ?? it.is_dir
+  return typeof dir === 'boolean'
 }
 
-/** 解析 localStorage 载荷：过滤畸形项、按 path 去重、截到 FAVORITES_MAX。 */
+/** 解析 localStorage 载荷：过滤畸形项、按 path 去重、截到 FAVORITES_MAX；
+ * 旧形态 addedAt 缺省补当前时刻（排序语义：新导入视为最新）。 */
 export function normalizeFavorites(raw: unknown): FavoriteItem[] {
   const list = Array.isArray(raw) ? raw : []
   const seen = new Set<string>()
@@ -387,7 +389,10 @@ export function normalizeFavorites(raw: unknown): FavoriteItem[] {
     const path = x.path.trim()
     if (path === '' || seen.has(path)) continue
     seen.add(path)
-    out.push({ path, name: x.name, isDir: x.isDir, addedAt: x.addedAt })
+    // 运行时值可能在 is_dir 别名上——从原始对象强制转换，别信守卫的 narrowing。
+    const raw = x as { path: string; name: string; isDir?: unknown; is_dir?: unknown; addedAt?: unknown }
+    const isDir = (raw.isDir ?? raw.is_dir) === true
+    out.push({ path, name: raw.name, isDir, addedAt: typeof raw.addedAt === 'number' ? raw.addedAt : Date.now() })
   }
   return out
 }

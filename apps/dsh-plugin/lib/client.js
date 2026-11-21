@@ -75343,7 +75343,9 @@ window.__ModuleLoader__.load({
 		function isFavoriteLike(x2) {
 		  if (x2 === null || typeof x2 !== "object" || Array.isArray(x2)) return false;
 		  const it2 = x2;
-		  return typeof it2.path === "string" && it2.path.trim() !== "" && typeof it2.name === "string" && typeof it2.isDir === "boolean" && typeof it2.addedAt === "number";
+		  if (typeof it2.path !== "string" || it2.path.trim() === "" || typeof it2.name !== "string") return false;
+		  const dir = it2.isDir ?? it2.is_dir;
+		  return typeof dir === "boolean";
 		}
 		function normalizeFavorites(raw) {
 		  const list = Array.isArray(raw) ? raw : [];
@@ -75355,7 +75357,9 @@ window.__ModuleLoader__.load({
 		    const path = x2.path.trim();
 		    if (path === "" || seen.has(path)) continue;
 		    seen.add(path);
-		    out.push({ path, name: x2.name, isDir: x2.isDir, addedAt: x2.addedAt });
+		    const raw2 = x2;
+		    const isDir = (raw2.isDir ?? raw2.is_dir) === true;
+		    out.push({ path, name: raw2.name, isDir, addedAt: typeof raw2.addedAt === "number" ? raw2.addedAt : Date.now() });
 		  }
 		  return out;
 		}
