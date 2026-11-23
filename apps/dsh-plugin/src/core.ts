@@ -367,7 +367,7 @@ export interface FavoriteItem {
   addedAt: number
 }
 
-/** 宽容识别（v0.3.1 终审修复）：canonical {isDir,addedAt} 与桌面端旧形态
+/** 宽容识别（v0.3.1 修复）：canonical {isDir,addedAt} 与桌面端旧形态
  * {is_dir, 无 addedAt} 均接受——两端同键 anyfind.favorites，载荷必须互通。 */
 function isFavoriteLike(x: unknown): x is { path: string; name: string; isDir: boolean; addedAt: number | undefined } {
   if (x === null || typeof x !== 'object' || Array.isArray(x)) return false

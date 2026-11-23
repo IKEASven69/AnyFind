@@ -158,7 +158,7 @@ const DEFAULT_MCP_ARGS: readonly string[] = ['mcp', '--no-index']
 /** 仓内相对发现：从本模块目录向上找 core/target/release/anyfindd.exe
  * （等价桌面端 dev 回退的 CARGO_MANIFEST_DIR 形态；link:/symlink 安装仍解析到
  * 真身目录）。环境变量 ANYFINDD_EXE 最优先（CI/hermetic selftest 用）。
- * v0.3.1 终审修复：去掉硬编码的开发机绝对路径。 */
+ * v0.3.1 修复：去掉硬编码的本机绝对路径。 */
 function repoCandidates(): string[] {
   const out: string[] = []
   if (process.env.ANYFINDD_EXE !== undefined && process.env.ANYFINDD_EXE !== '') {

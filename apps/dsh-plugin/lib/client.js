@@ -84298,7 +84298,7 @@ window.__ModuleLoader__.load({
 		  { ins: "project:", desc: "\u6309\u9879\u76EE\u540D\uFF0C\u5982 project:filefind" },
 		  { ins: "date:", desc: "date:2026-10-01..2026-10-20 \u6216 date:7d" },
 		  { ins: "ext:", desc: "\u6309\u6269\u5C55\u540D\uFF0C\u5982 ext:.py\u3001ext:md" },
-		  { ins: "in:", desc: "\u9650\u5B9A\u76EE\u5F55\uFF0C\u5982 in:D:/coding" },
+		  { ins: "in:", desc: "\u9650\u5B9A\u76EE\u5F55\uFF0C\u5982 in:C:/projects" },
 		  { ins: "role:", desc: "\u4F1A\u8BDD\u5185\u89D2\u8272\uFF0C\u5982 role:user\uFF08\u4EC5\u4F1A\u8BDD\u7EC4\uFF09" },
 		  { ins: "size:", desc: "\u6309\u6587\u4EF6\u5927\u5C0F\uFF0C\u5982 size:>1MB\uFF08\u4EC5\u6587\u4EF6\u7EC4\uFF09" },
 		  { ins: '"', desc: '\u77ED\u8BED\u7CBE\u786E\u5339\u914D\uFF0C\u5982 "hello world"' },
@@ -84816,7 +84816,7 @@ window.__ModuleLoader__.load({
 		  ".idea",
 		  "target"
 		]);
-		var DEFAULT_ROOT = "D:/coding";
+		var DEFAULT_ROOT = "C:/";
 		var files = {
 		  state: { tabs: [], activeId: -1, expanded: [], lists: {}, preview: null, nextId: 1 },
 		  listeners: /* @__PURE__ */ new Set(),
@@ -86633,7 +86633,7 @@ window.__ModuleLoader__.load({
 		          className: "rc-fpath",
 		          value: draft,
 		          spellCheck: false,
-		          placeholder: "\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u5982 D:/coding\u2026",
+		          placeholder: "\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u5982 C:/\u2026",
 		          onChange: (e2) => {
 		            setDraft(e2.target.value);
 		          },

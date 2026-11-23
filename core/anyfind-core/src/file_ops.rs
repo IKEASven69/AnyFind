@@ -525,7 +525,7 @@ pub fn plan_op(
             let mut out = Vec::with_capacity(paths.len());
             for p in paths {
                 // 防自嵌套：target 位于源路径子树内（含相等）时，Copy-Item/Move-Item -Recurse
-                // 会沿不断增长的子树无限递归复制直至超时（终审实测 copy X → X/sub 触发，
+                // 会沿不断增长的子树无限递归复制直至超时（实测 copy X → X/sub 触发，
                 // 磁盘残留多层嵌套副本）——在计划层直接拒绝。
                 if is_within(Path::new(p), t) {
                     return Err(format!(
@@ -1103,7 +1103,7 @@ mod tests {
 
         #[test]
         fn plan_copy_cut_rejects_target_inside_source_subtree() {
-            // 终审实测：copy D:\selfcopy → D:\selfcopy\sub 触发 Copy-Item -Recurse 无限自嵌套复制。
+            // 实测：copy D:\selfcopy → D:\selfcopy\sub 触发 Copy-Item -Recurse 无限自嵌套复制。
             let err = plan_op(
                 "copy",
                 &s(&[r"D:\selfcopy"]),

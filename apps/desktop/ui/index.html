@@ -568,7 +568,7 @@
         <button class="sb-btn" id="sb-refresh" title="刷新根目录">&#x21BB;</button>
       </div>
       <div id="sb-root-row">
-        <input id="sb-root" placeholder="根路径 如 D:/coding" spellcheck="false" autocomplete="off">
+        <input id="sb-root" placeholder="根路径，如 C:/projects" spellcheck="false" autocomplete="off">
         <button id="sb-go">转到</button>
       </div>
       <div id="fav-bar" title="收藏夹（拖拽排序，点击定位）"></div>
@@ -634,7 +634,7 @@
   <div class="syn-row"><code data-ins="ext:">ext:</code><span>扩展名，多个用分号 ext:pdf;docx</span></div>
   <div class="syn-row"><code data-ins="size:">size:</code><span>size:&gt;10mb 或 size:1mb..5mb</span></div>
   <div class="syn-row"><code data-ins="date:">date:</code><span>today / week / &gt;2026-10-01 / 2026-10-01..2026-10-20</span></div>
-  <div class="syn-row"><code data-ins="in:">in:</code><span>路径前缀，如 in:D:/coding</span></div>
+  <div class="syn-row"><code data-ins="in:">in:</code><span>路径前缀，如 in:C:/projects</span></div>
   <div class="syn-row"><code data-ins="role:">role:</code><span>user / assistant（session 专用）</span></div>
   <div class="syn-example">组合示例：<code>kind:session agent:codex nginx</code><br><code>ext:pdf;docx size:&gt;10mb date:week</code></div>
 </div>
@@ -1102,7 +1102,7 @@ const MOCK = (() => {
     return Object.assign({
       kind,
       title: `${q} 示例${kind === "file" ? "文件" : "条目"} ${i + 1}${kind === "file" ? ".py" : ""}`,
-      path: kind === "session" ? null : `D:/coding/anyfind/demo/${kind}_${i + 1}.md`,
+      path: kind === "session" ? null : `C:/Users/me/demo/${kind}_${i + 1}.md`,
       snippet: `……这里是命中上下文，关键词 <mark>${esc(q)}</mark> 出现在第 ${i + 3} 行附近，其余内容已按契约用 mark 包裹高亮……`,
       mtime: `2026-10-${String(12 + i).padStart(2, "0")}T0${i + 1}:30:00`,
       agent: null, project: null, session_id: null, cwd: null,
@@ -1121,12 +1121,12 @@ const MOCK = (() => {
     const groups = { file: [], content: [], session: [], skill: [], memory: [] };
     for (let i = 0; i < 3; i++) {
       groups.file.push(hit("file", kw, i, { project: "anyfind" }));
-      groups.content.push(hit("content", kw, i, { project: i ? "agentforge" : "anyfind" }));
+      groups.content.push(hit("content", kw, i, { project: i ? "recipes" : "anyfind" }));
       const ag = agents[i % agents.length];
       groups.session.push(hit("session", kw, i, {
         title: `<mark>${esc(kw)}</mark> 部署排障讨论（第 ${i + 1} 轮）`,
-        agent: ag, project: ["anyfind", "aethergate", "hippo"][i],
-        session_id: `mock-sess-${ag}-${i}`, cwd: "D:/coding/anyfind",
+        agent: ag, project: ["anyfind", "notes", "blog"][i],
+        session_id: `mock-sess-${ag}-${i}`, cwd: "C:/Users/me/anyfind",
       }));
       groups.skill.push(hit("skill", kw, i, {
         title: `skill: ${kw}-helper`,
@@ -1135,8 +1135,8 @@ const MOCK = (() => {
       }));
       groups.memory.push(hit("memory", kw, i, {
         title: `CLAUDE.md — ${kw} 相关约定`,
-        path: `D:/coding/${["anyfind", "aethergate", "agentforge"][i]}/CLAUDE.md`,
-        agent: "claude-code", project: ["anyfind", "aethergate", "agentforge"][i],
+        path: `C:/Users/me/${["anyfind", "notes", "recipes"][i]}/CLAUDE.md`,
+        agent: "claude-code", project: ["anyfind", "notes", "recipes"][i],
       }));
     }
     if (kindsWanted) Object.keys(groups).forEach(k => { if (!kindsWanted.includes(k)) groups[k] = []; });
@@ -1146,7 +1146,7 @@ const MOCK = (() => {
   function session(id) {
     const ag = (id.split("-")[2] || "codex");
     return {
-      session_id: id, agent: ag, project: "anyfind", cwd: "D:/coding/anyfind",
+      session_id: id, agent: ag, project: "anyfind", cwd: "C:/Users/me/anyfind",
       messages: [
         { role: "user", ts: "2026-10-12T08:30:00", text: "帮我查一下 nginx 反代 502 的原因，日志在 D:/logs/nginx/error.log" },
         { role: "assistant", ts: "2026-10-12T08:31:10", text: "看了日志，上游 connect() 超时。先确认 upstream 容器是否健康：\n\ndocker compose ps\n\n如果是间歇性 502，多半是 keepalive 空闲连接被上游先关掉，建议在 proxy_pass 前加：\n\nproxy_http_version 1.1;\nproxy_set_header Connection \"\";" },
@@ -2093,7 +2093,7 @@ const FAV_KEY = "anyfind.favorites";
 function loadFavList() {
   try {
     const v = JSON.parse(localStorage.getItem(FAV_KEY) || "[]");
-    // canonical 形态 {path,name,isDir,addedAt}，兼容读旧形态 is_dir（v0.3.1 终审修复：两端载荷互通）。
+    // canonical 形态 {path,name,isDir,addedAt}，兼容读旧形态 is_dir（v0.3.1 修复：两端载荷互通）。
     return Array.isArray(v) ? v.filter(x => x && x.path).map(x => ({
       path: String(x.path), name: String(x.name || basename(x.path) || x.path),
       isDir: !!(x.isDir ?? x.is_dir), addedAt: Number(x.addedAt) || 0,
@@ -2220,7 +2220,7 @@ function renderDrivesHome() {
   treeFlatList = [];
   if (drivesHome.loading) { box.innerHTML = '<div class="tree-empty">正在读取盘符…</div>'; return; }
   if (drivesHome.error) {
-    box.innerHTML = `<div class="tree-empty">盘符读取失败：${esc(drivesHome.error)}<br>可在上方输入根目录路径后按回车，例如 <b>D:/coding</b></div>`;
+    box.innerHTML = `<div class="tree-empty">盘符读取失败：${esc(drivesHome.error)}<br>可在上方输入根目录路径后按回车，例如 <b>C:/</b></div>`;
     return;
   }
   if (!drivesHome.list.length) {

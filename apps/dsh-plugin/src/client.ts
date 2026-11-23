@@ -1,6 +1,6 @@
 /**
  * dsh-anyfind 浏览器半：Spotlight 式居中搜索浮层。
- * v3 形态（最终拍板）：
+ * v3 形态：
  *   - 主形态 = 居中浮层（shell.overlay 机制，与 dsh-hippo MemoryOverlay 同套）：
  *     Ctrl+K 呼出（宿主/已装插件均无此组合占用，已排查），Esc/点遮罩关闭，
  *     上下键导航结果、Enter 执行主动作（会话命中=生成并复制 resume 命令，
@@ -838,7 +838,7 @@ const SYNTAX_ROWS: ReadonlyArray<{ ins: string; desc: string }> = [
   { ins: 'project:', desc: '按项目名，如 project:filefind' },
   { ins: 'date:', desc: 'date:2026-10-01..2026-10-20 或 date:7d' },
   { ins: 'ext:', desc: '按扩展名，如 ext:.py、ext:md' },
-  { ins: 'in:', desc: '限定目录，如 in:D:/coding' },
+  { ins: 'in:', desc: '限定目录，如 in:C:/projects' },
   { ins: 'role:', desc: '会话内角色，如 role:user（仅会话组）' },
   { ins: 'size:', desc: '按文件大小，如 size:>1MB（仅文件组）' },
   { ins: '"', desc: '短语精确匹配，如 "hello world"' },
@@ -1357,8 +1357,8 @@ const NOISE_DIRS: ReadonlySet<string> = new Set([
   '.git', 'node_modules', 'dist', 'build', 'coverage', '.idea', 'target',
 ])
 
-/** 新标签默认根目录（本工作区）；路径栏可跳任意绝对路径。 */
-const DEFAULT_ROOT = 'D:/coding'
+/** 新标签默认根目录；路径栏可跳任意绝对路径。 */
+const DEFAULT_ROOT = 'C:/'
 
 interface FileTab {
   id: number
@@ -3248,7 +3248,7 @@ function FileTreePanel(): ReturnType<typeof createElement> {
               className: 'rc-fpath',
               value: draft,
               spellCheck: false,
-              placeholder: '绝对路径，如 D:/coding…',
+              placeholder: '绝对路径，如 C:/…',
               onChange: (e: { target: { value: string } }) => { setDraft(e.target.value) },
               onKeyDown: (e: { key: string; preventDefault(): void }) => {
                 if (e.key !== 'Enter') return

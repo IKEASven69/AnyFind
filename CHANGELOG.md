@@ -41,11 +41,11 @@
 - `cargo test --workspace`（core/）：**84 项全绿**（anyfind-core 49 + adapters_malformed 2 + search_filters 3 + anyfindd 30——含 mcp 模块 18 项；新增盘符 2 项：`list_drives` 契约形状 / `sort_dedup_drives` 排序去重）
 - `node scripts/desktop-smoke.mjs`：**49 项检查全部 ok，0 失败**（结构锚点新增盘符首页 / 收藏夹 / 媒体播放三组）
 - `node scripts/mcp-smoke.mjs`：**16 通过 / 0 失败**（release `anyfindd.exe` 真子进程：三工具 / 错误码 / stdout 纯净 / EOF 退出码 0）
-- 实机 UI 走查（Playwright → 本机 dsh 宿主）：**5/5 通过**——盘符首页 7 盘符渲染 / 星标跨 reload 持久 / 现造 test.zip 出压缩包条目树（含 hello.txt）/ 真实 wav 搜索命中出 `<audio>` 控件（blob src）/ 插件加载且经 `/dsh-anyfind/api/*` 同源代理打内核（底档 `.tmp-ui-probe/v03-probe-report.json`）
+- 实机 UI 走查（Playwright → 本机 dsh 宿主）：**5/5 通过**——盘符首页 7 盘符渲染 / 星标跨 reload 持久 / 现造 test.zip 出压缩包条目树（含 hello.txt）/ 真实 wav 搜索命中出 `<audio>` 控件（blob src）/ 插件加载且经 `/dsh-anyfind/api/*` 同源代理打内核
 
 ### Known gaps
 
-- **通道 A（宿主内 MCP 注册）实机验证 blocked**：本机 dsh 宿主未装 `@deepseek-ai/dsh-mcp-manager`——recon 实测设置面板无 MCP 分区、会话工具 picker 无 anyfind MCP 工具（截图 `.tmp-ui-probe/v03-recon*.png`），`ctx.inject(['mcpManager'])` 不触发、注册静默跳过（设计内降级，非缺陷）。已验层次：mock 注册面（selftest）+ 通道 B 真子进程（mcp-smoke 16/16）+ 注册语义对 dsh-mcp-manager `0.2.2-rc.2` 源码逐条核对（provider-integration.md §1）；待宿主装上 mcp-manager 后复验
+- **通道 A（宿主内 MCP 注册）实机验证 blocked**：本机 dsh 宿主未装 `@deepseek-ai/dsh-mcp-manager`——recon 实测设置面板无 MCP 分区、会话工具 picker 无 anyfind MCP 工具，`ctx.inject(['mcpManager'])` 不触发、注册静默跳过（设计内降级，非缺陷）。已验层次：mock 注册面（selftest）+ 通道 B 真子进程（mcp-smoke 16/16）+ 注册语义对 dsh-mcp-manager `0.2.2-rc.2` 源码逐条核对（provider-integration.md §1）；待宿主装上 mcp-manager 后复验
 - **桌面 / 插件不对齐**：行内重命名与批量工具栏、压缩包浏览、划词引用三件为插件端先行，桌面端未同步（桌面本轮只落盘符首页 / 收藏夹 / 媒体播放三件）
 - **划词引用无实机 UI 走查**：纯函数层 selftest 覆盖（`selectionToLines` / `formatLineReference` / `formatPageReference`），未在宿主 UI 里实走选区
 - **媒体播放实机只测了音频**（真实 wav 命中出 `<audio>`）；视频通路为结构断言（desktop-smoke `<video>` createElement 锚点）+ >2MB 降级设计，未以真实视频文件实测
@@ -54,7 +54,7 @@
 
 ## [0.2.0] - 2026-11-12
 
-文件工作台版本：吸收 tm5452/dsh-workspace-explorer 的 MIT 预览库（评估见 `docs/ABSORPTION-PLAN.md`，署名随附于各 vendor 目录），搜索之外补齐文件浏览与轻量管理。桌面端与 dsh 插件端共用同一组内核文件端点。
+文件工作台版本：集成 tm5452/dsh-workspace-explorer 的 MIT 预览库（署名随附于各 vendor 目录），搜索之外补齐文件浏览与轻量管理。桌面端与 dsh 插件端共用同一组内核文件端点。
 
 ### Added
 
@@ -65,14 +65,14 @@
   - dsh 插件同源代理 `/dsh-anyfind/api/file/{list,read,stat,op}` + 插件自有 `file/bytes`、`office/pdf`（宿主 officeKit 转换，能力缺席 503）
 - **文件工作台·桌面端**（`apps/desktop`）：目录树 + 多标签（新建/关闭/切换/拖拽排序）+ 预览（文本分页 30/60/120、图片 base64→data URL、PDF 本地 pdfjs、富格式解析层）+ 右键写操作菜单（重命名 / 复制路径 / 删除→回收站 / 新建文件 / 新建文件夹，破坏性二次确认，批量 ≤128）
 - **文件工作台·dsh 插件端**：浮层「文件」视图与 betterSidebar「文件」tab 双路径共享同一 store；预览面板（文本分页 / 图片 ≤1MB data URL 内联 / PDF pdfjs-dist / vendor 富格式 React 正文 / Office 转 PDF）；引用链路——会话头胶囊（`conversation.session.header.utilities` + `inputActions` 桥）、「引用」按钮、`@` 触发源（宿主 `inputTriggers`）、拖拽引用（`application/x-anyfind-file`，目录落框生成 `├─└─│` 文本树 ≤200 行、懒加载深度 4 / 节点 300）；Ctrl 点选批量 ≤128
-- **vendor 预览库吸收**（MIT，Copyright (c) 2026 LeiYuXingZhou，`LICENSE-preview-extra` 全文随附）：插件端 `src/vendor/**`（3D 模型 / 压缩包 / TOML / Intel HEX / JCAMP-DX / VCD / KiCad / DFU 解析 + React 预览正文），桌面端 `ui/vendor/preview/**`（解析层 + 自研 `rich.js` 接入层）
+- **vendor 预览库集成**（MIT，Copyright (c) 2026 LeiYuXingZhou，`LICENSE-preview-extra` 全文随附）：插件端 `src/vendor/**`（3D 模型 / 压缩包 / TOML / Intel HEX / JCAMP-DX / VCD / KiCad / DFU 解析 + React 预览正文），桌面端 `ui/vendor/preview/**`（解析层 + 自研 `rich.js` 接入层）
 - **桌面端内核错误文案透出**：ureq 4xx/5xx 读契约 `{error}` 体展示（如「文件超过 2MB」），不再裸抛状态码
 
 ### Fixed
 
 - 插件构建（`scripts/build.mjs`）：client 半 `__ModuleLoader__` 工厂作用域注入 `var react = require("react")`——vendor 预览模块顶层使用自由变量 `react`，缺注入时产物加载即崩；selftest 以工厂求值验证注入生效
 - 插件构建（`scripts/build.mjs`）：改名遗留 P0——客户端模块注册 id 硬编码 `dsh-recall` 漏改为 `dsh-anyfind`，产物曾以旧 id 注册；已修复并重建
-- `file/op` copy/cut 防自嵌套：target 位于源路径子树内（含相等）时在计划层直接拒绝——独立终审实测 `copy X → X/sub` 会触发 `Copy-Item -Recurse` 沿不断增长的子树无限递归复制直至超时、磁盘残留多层嵌套副本（含单测：子树/相等/大小写归一化三态拒绝，兄弟目录不受影响）
+- `file/op` copy/cut 防自嵌套：target 位于源路径子树内（含相等）时在计划层直接拒绝——实测 `copy X → X/sub` 会触发 `Copy-Item -Recurse` 沿不断增长的子树无限递归复制直至超时、磁盘残留多层嵌套副本（含单测：子树/相等/大小写归一化三态拒绝，兄弟目录不受影响）
 - 再分发合规：pdfjs-dist（Apache-2.0）内嵌于 `lib/client.js`，其许可文本现随包分发（`LICENSE-pdfjs` 入 `files` 白名单，声明见 `src/vendor/VENDORED.md`）
 
 ### Changed
@@ -88,7 +88,7 @@
 
 ## [0.1.0] - 2026-11-12
 
-首次发布。dsh 插件 `dsh-anyfind` 上线 npm。
+首次发布。dsh 插件 `dsh-anyfind`。
 
 ### Added
 
@@ -111,3 +111,4 @@
 
 [0.1.0]: https://github.com/IKEASven69/AnyFind/releases/tag/v0.1.0
 [0.2.0]: https://github.com/IKEASven69/AnyFind/releases/tag/v0.2.0
+[0.3.1]: https://github.com/IKEASven69/AnyFind/releases/tag/v0.3.1

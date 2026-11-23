@@ -21,6 +21,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { deflateRawSync } from 'node:zlib'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const PLUGIN_ROOT = ROOT.replace(/\\/g, '/')
 // 固定端口会与本机无关应用撞车（实测：veyra_qml_ui.exe 占用 18765 导致 mock
 // EADDRINUSE 退出、selftest 挂在启动段）——改绑 :0 由内核分配空闲端口。
 function findFreePort() {
@@ -201,7 +202,7 @@ try {
   check('工具描述含使用时机指引', typeof tool.description === 'string' && tool.description.includes('以前'))
 
   console.log('▶ 宿主内 MCP 注册（mcpManager 注册面）：')
-  // v0.3.1 终审修复：断言按发现结果条件化——干净 checkout（无 anyfindd 产物）上
+  // v0.3.1 修复：断言按发现结果条件化——干净 checkout（无 anyfindd 产物）上
   // 跳过注册属契约行为，selftest 不再依赖开发机产物存在。
   const discoveredAnyfindd = discoverAnyfindd(undefined)
   if (discoveredAnyfindd !== '') {
@@ -276,10 +277,10 @@ try {
   console.log('▶ 文件端点代理（契约 v0.2 透传）：')
   const q = (params) => new URLSearchParams(params).toString()
   const listOk = await callRoute('/dsh-anyfind/api/file/list', {
-    query: q({ path: 'D:/coding/anyfind/apps/dsh-plugin' }),
+    query: q({ path: PLUGIN_ROOT }),
   })
   check('GET file/list 200 且回显 path',
-    listOk.statusCode === 200 && listOk.json().path === 'D:/coding/anyfind/apps/dsh-plugin', listOk.body)
+    listOk.statusCode === 200 && listOk.json().path === PLUGIN_ROOT, listOk.body)
   const entries = listOk.statusCode === 200 ? listOk.json().entries : []
   check('GET file/list 目录优先、同组按名排序',
     entries.length >= 4 && entries.slice(0, 3).every((e) => e.is_dir === true)
@@ -289,18 +290,18 @@ try {
   check('GET file/list 文件条目结构（name/size/mtime）',
     entries.some((e) => e.name === 'package.json' && e.is_dir === false && e.size === 2048 && e.mtime === '2026-11-01T11:05:00'))
   const listNoise = await callRoute('/dsh-anyfind/api/file/list', {
-    query: q({ path: 'D:/coding/anyfind/apps/dsh-plugin', noise: '1' }),
+    query: q({ path: PLUGIN_ROOT, noise: '1' }),
   })
   check('noise=1 透传（噪声目录可见）',
     listNoise.statusCode === 200 && listNoise.json().entries.some((e) => e.name === 'node_modules'))
   const listMax = await callRoute('/dsh-anyfind/api/file/list', {
-    query: q({ path: 'D:/coding/anyfind/apps/dsh-plugin', max: '2' }),
+    query: q({ path: PLUGIN_ROOT, max: '2' }),
   })
   check('max 截断透传（truncated=true）',
     listMax.statusCode === 200 && listMax.json().entries.length === 2 && listMax.json().truncated === true)
 
   const statOk = await callRoute('/dsh-anyfind/api/file/stat', {
-    query: q({ path: 'D:/coding/anyfind/apps/dsh-plugin/package.json' }),
+    query: q({ path: `${PLUGIN_ROOT}/package.json` }),
   })
   check('GET file/stat 200 透传 name/size/mtime',
     statOk.statusCode === 200 && statOk.json().name === 'package.json'
@@ -340,8 +341,8 @@ try {
 
   const opOk = await postOp({
     op: 'rename',
-    paths: ['D:/coding/anyfind/apps/dsh-plugin/README.md'],
-    target: 'D:/coding/anyfind/apps/dsh-plugin',
+    paths: [`${PLUGIN_ROOT}/README.md`],
+    target: PLUGIN_ROOT,
     newName: 'README2.md',
   })
   check('POST op 成功态透传 200 {ok,results}',
@@ -351,7 +352,7 @@ try {
 
   const opMixed = await postOp({
     op: 'recycle',
-    paths: ['D:/coding/anyfind/apps/dsh-plugin/src/client.ts', 'D:/coding/anyfind/apps/dsh-plugin/locked.txt'],
+    paths: [`${PLUGIN_ROOT}/src/client.ts`, `${PLUGIN_ROOT}/locked.txt`],
   })
   check('POST op 单 path 失败态：200 + results[1].ok=false + error',
     opMixed.statusCode === 200 && opMixed.json().ok === true && opMixed.json().results.length === 2
@@ -401,7 +402,6 @@ try {
     validateFileOpRequest({ op: 'rename', paths: ['D:/a/old.txt'], target: 'D:/a', newName: 'new.txt' }) === null)
 
   console.log('▶ 文件读取（file/read 分页透传）：')
-  const PLUGIN_ROOT = 'D:/coding/anyfind/apps/dsh-plugin'
   const readMid = await callRoute('/dsh-anyfind/api/file/read', {
     query: q({ path: `${PLUGIN_ROOT}/README.md`, offset: '30', lines: '60' }),
   })

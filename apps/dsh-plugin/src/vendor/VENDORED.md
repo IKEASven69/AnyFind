@@ -19,4 +19,4 @@
   （与上游 scripts/build-client.mjs 同一注入方式）；`primitives` 有 `typeof` 守卫，缺失时走纯 DOM 兜底。
 - 接入点：`src/client.ts` 预览面板按扩展名命中 `previewDefinitions` 后，
   经 `/dsh-anyfind/api/file/bytes` 取字节并渲染 `previewBodies[id]`。
-- pdfjs-dist（Apache-2.0）经 esbuild 内嵌于 lib/client.js；其许可文本随包分发于顶层 LICENSE-pdfjs（终审发现的再分发合规补丁，2026-11-14）。
+- pdfjs-dist（Apache-2.0）经 esbuild 内嵌于 lib/client.js；其许可文本随包分发于顶层 LICENSE-pdfjs（再分发合规补丁，2026-11-14）。

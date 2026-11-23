@@ -5,3 +5,5 @@ apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/schemas/
 apps/desktop/src-tauri/binaries/*.exe
 apps/dsh-plugin/node_modules/
+.tmp-ui-probe/
+data/

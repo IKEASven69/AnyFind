@@ -45,7 +45,7 @@ Provider 接入指南（三通道细节与排他性、HTTP 契约速查、mnemon
 
 ## 文件工作台（0.2.0 新增，0.3.0 增补）
 
-搜索之外，0.2.0 吸收了一套文件浏览与轻量管理能力，0.3.0 增补六件。桌面端（Tauri 壳）与 dsh 插件端共用同一组内核端点 `/api/file/{list,read,stat,op,drives}`（契约 v0.2，见 `docs/api-contract.md`）；预览库 vendor 自 [tm5452/dsh-workspace-explorer](https://github.com/tm5452/dsh-workspace-explorer)（MIT，署名随附于各 vendor 目录的 `LICENSE-preview-extra` / `VENDORED.md`，吸收评估见 `docs/ABSORPTION-PLAN.md`）。
+搜索之外，0.2.0 新增一套文件浏览与轻量管理能力，0.3.0 增补六件。桌面端（Tauri 壳）与 dsh 插件端共用同一组内核端点 `/api/file/{list,read,stat,op,drives}`（契约 v0.2，见 `docs/api-contract.md`）；富格式预览基于 [tm5452/dsh-workspace-explorer](https://github.com/tm5452/dsh-workspace-explorer) 的 MIT 预览库（署名随附于各 vendor 目录的 `LICENSE-preview-extra` / `VENDORED.md`）。
 
 - **目录树**：懒加载——展开目录时才拉取 `/api/file/list`（默认 500 条上限，截断有提示）；噪声目录默认过滤（`.git` `node_modules` `dist` `build` `coverage` `.idea` `target`，可切换显示）；目录优先、名称排序。dsh 插件端目录树与浮层「文件」视图、betterSidebar「文件」tab 共享同一 store（标签 / 展开 / 选中 / 缓存互通）
 - **多标签**：新建 / 关闭 / 切换 / 拖拽排序，纯客户端零请求

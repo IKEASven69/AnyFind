@@ -1,27 +1,29 @@
 // mock-core.mjs — 按 docs/api-contract.md（搜索组 v0.1 / 文件组 v0.2）返回假数据的统一搜索内核 mock。
 // 用法：node test/mock-core.mjs [port]（默认 18765，避免与真内核 8765 撞车）
 import { createServer } from 'node:http'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const port = Number(process.argv[2] ?? '18765')
 
 const HITS = {
   file: [
-    { kind: 'file', title: 'nginx.conf', path: 'D:/coding/filefind/nginx.conf', snippet: null, mtime: '2026-10-12T08:30:00', agent: null, project: 'filefind', session_id: null, cwd: null, score: 0.91 },
-    { kind: 'file', title: 'client.ts', path: 'D:/coding/anyfind/apps/dsh-plugin/src/client.ts', snippet: '面板里加 <mark>预览</mark> 与引用按钮', mtime: '2026-11-13T09:20:00', agent: null, project: 'dsh-plugin', session_id: null, cwd: null, score: 0.88 },
-    { kind: 'file', title: 'api-contract.md', path: 'D:/coding/anyfind/docs/api-contract.md', snippet: '文件端点契约 v0.2 <mark>file/read</mark> 分页', mtime: '2026-11-12T17:05:00', agent: null, project: 'anyfind', session_id: null, cwd: null, score: 0.81 },
+    { kind: 'file', title: 'nginx.conf', path: 'C:/Users/me/filefind/nginx.conf', snippet: null, mtime: '2026-10-12T08:30:00', agent: null, project: 'filefind', session_id: null, cwd: null, score: 0.91 },
+    { kind: 'file', title: 'client.ts', path: 'C:/Users/me/anyfind/apps/dsh-plugin/src/client.ts', snippet: '面板里加 <mark>预览</mark> 与引用按钮', mtime: '2026-11-13T09:20:00', agent: null, project: 'dsh-plugin', session_id: null, cwd: null, score: 0.88 },
+    { kind: 'file', title: 'api-contract.md', path: 'C:/Users/me/anyfind/docs/api-contract.md', snippet: '文件端点契约 v0.2 <mark>file/read</mark> 分页', mtime: '2026-11-12T17:05:00', agent: null, project: 'anyfind', session_id: null, cwd: null, score: 0.81 },
   ],
   content: [
-    { kind: 'content', title: '部署笔记.md', path: 'D:/notes/deploy.md', snippet: '反代配置 <mark>nginx</mark> 的 server_name 要带上内网域名', mtime: '2026-10-10T14:02:00', agent: null, project: null, session_id: null, cwd: null, score: 0.77 },
+    { kind: 'content', title: '部署笔记.md', path: 'C:/Users/me/notes/deploy.md', snippet: '反代配置 <mark>nginx</mark> 的 server_name 要带上内网域名', mtime: '2026-10-10T14:02:00', agent: null, project: null, session_id: null, cwd: null, score: 0.77 },
   ],
   session: [
-    { kind: 'session', title: '给 dsh 插件加搜索面板', path: null, snippet: '用户：之前 <mark>nginx</mark> 反代怎么配的来着？\n助手：上次的配置在…', mtime: '2026-10-18T03:12:00', agent: 'claude-code', project: 'dsh-plugin', session_id: 'sess-abc-123', cwd: 'D:/coding/filefind/dsh-plugin', score: 0.83 },
-    { kind: 'session', title: '内核索引联调', path: null, snippet: '<mark>nginx</mark> access log 解析', mtime: '2026-10-15T09:40:00', agent: 'codex', project: 'filefind', session_id: 'sess-def-456', cwd: 'D:/coding/filefind', score: 0.66 },
+    { kind: 'session', title: '给 dsh 插件加搜索面板', path: null, snippet: '用户：之前 <mark>nginx</mark> 反代怎么配的来着？\n助手：上次的配置在…', mtime: '2026-10-18T03:12:00', agent: 'claude-code', project: 'dsh-plugin', session_id: 'sess-abc-123', cwd: 'C:/Users/me/filefind/dsh-plugin', score: 0.83 },
+    { kind: 'session', title: '内核索引联调', path: null, snippet: '<mark>nginx</mark> access log 解析', mtime: '2026-10-15T09:40:00', agent: 'codex', project: 'filefind', session_id: 'sess-def-456', cwd: 'C:/Users/me/filefind', score: 0.66 },
   ],
   skill: [
     { kind: 'skill', title: 'opencli-adapter-author', path: 'C:/Users/x/.agents/skills/opencli-adapter-author/SKILL.md', snippet: '为 OpenCLI 编写新站点 <mark>nginx</mark> 适配器…', mtime: '2026-09-30T11:00:00', agent: 'claude-code', project: null, session_id: null, cwd: null, score: 0.52 },
   ],
   memory: [
-    { kind: 'memory', title: 'CLAUDE.md', path: 'D:/coding/filefind/CLAUDE.md', snippet: '本项目反代统一走 <mark>nginx</mark>，不用 caddy', mtime: '2026-10-01T02:00:00', agent: 'claude-code', project: 'filefind', session_id: null, cwd: null, score: 0.71 },
+    { kind: 'memory', title: 'CLAUDE.md', path: 'C:/Users/me/filefind/CLAUDE.md', snippet: '本项目反代统一走 <mark>nginx</mark>，不用 caddy', mtime: '2026-10-01T02:00:00', agent: 'claude-code', project: 'filefind', session_id: null, cwd: null, score: 0.71 },
   ],
 }
 
@@ -32,7 +34,9 @@ function send(res, code, body) {
 
 // 文件端点夹具（契约 v0.2）：噪声目录默认隐藏、目录优先按名排序由 mock 复刻。
 const NOISE_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.idea', 'target'])
-const ROOT = 'D:/coding/anyfind/apps/dsh-plugin'
+// 夹具根 = 本文件（test/）的上一级插件根，任何克隆位置都成立。
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..').replace(/\\/g, '/')
+const ROOT_PARENT = ROOT.slice(0, ROOT.lastIndexOf('/'))
 const DIR_MTIME = '2026-11-01T10:00:00'
 const ROOT_ENTRIES = [
   { name: '.git', is_dir: true, size: 0, mtime: '2026-11-01T09:00:00' },
@@ -184,7 +188,7 @@ createServer((req, res) => {
     if (path === '') { send(res, 400, { error: 'path 必填' }); return }
     if (!isAbsolutePath(path)) { send(res, 400, { error: 'path 必须是绝对路径' }); return }
     const norm = normalizePath(path)
-    if (norm !== ROOT && norm !== 'D:/coding/anyfind/apps') { send(res, 404, { error: `目录不存在或不可读: ${path}` }); return }
+    if (norm !== ROOT && norm !== ROOT_PARENT) { send(res, 404, { error: `目录不存在或不可读: ${path}` }); return }
     const noise = url.searchParams.get('noise') ?? '0'
     let max = 500
     const maxRaw = url.searchParams.get('max')
@@ -206,8 +210,11 @@ createServer((req, res) => {
     if (path === '') { send(res, 400, { error: 'path 必填' }); return }
     if (!isAbsolutePath(path)) { send(res, 400, { error: 'path 必须是绝对路径' }); return }
     const norm = normalizePath(path)
-    if (norm === ROOT || norm === 'D:/coding/anyfind/apps') {
-      send(res, 200, { name: norm === ROOT ? 'dsh-plugin' : 'apps', is_dir: true, size: 0, mtime: DIR_MTIME })
+    if (norm === ROOT || norm === ROOT_PARENT) {
+      send(res, 200, {
+        name: norm.slice(norm.lastIndexOf('/') + 1),
+        is_dir: true, size: 0, mtime: DIR_MTIME,
+      })
       return
     }
     const file = KNOWN_FILES[norm]
