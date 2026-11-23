@@ -22,9 +22,9 @@ Windows 上 Everything 级的即时搜索：一个索引统一 **文件名 / 文
 └────────────┴─────────────────┴────────────────────────┘
 ```
 
-- 参考实现（可移植的 Python 逻辑）：`D:/coding/filefind/session_index.py`、`agent_files_index.py`、`server.py`、`scanner.py`、`mft_index.py`
+- 参考实现（可移植的 Python 逻辑）：前身项目的 `session_index.py`、`agent_files_index.py`、`server.py`、`scanner.py`、`mft_index.py`（Rust 内核为对应重写）
 - API 契约：`docs/api-contract.md`（v0.1，dsh 插件已对接，不得破坏；可扩展）
-- UI 资产：`D:/coding/filefind/desktop.html`（液态玻璃暗色 + 分段控件，Tauri 壳复用并按下文修正）
+- UI 资产：前身项目 `desktop.html`（液态玻璃暗色 + 分段控件，Tauri 壳复用并按下文修正）
 
 ## 延迟预算（验收硬指标）
 
