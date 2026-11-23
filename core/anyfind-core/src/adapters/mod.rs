@@ -1,4 +1,4 @@
-//! 六家 AI harness 会话适配器（移植自 filefind/session_index.py）。
+//! 六家 AI harness 会话适配器（移植自前身 Python 参考实现 session_index.py）。
 //! 每家：discover() → SessionRef 列表；parse(path) → Parsed。
 //! 解析容错：坏行跳过不崩；增量按 (mtime, size) 指纹（在 db 层）。
 

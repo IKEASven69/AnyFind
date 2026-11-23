@@ -75,7 +75,7 @@
 
 带上下文开新会话（桌面版/dsh 面板"跳回会话"动作）。
 
-请求：`{"agent": "claude-code", "session_id": "...", "cwd": "D:/coding/xxx"}`
+请求：`{"agent": "claude-code", "session_id": "...", "cwd": "C:/Users/me/projects/demo"}`
 
 → `{"ok": true, "command": "claude --resume xxx"}` 或 `{"ok": false, "error": "..."}`
 

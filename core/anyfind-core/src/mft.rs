@@ -1,5 +1,5 @@
 //! Windows MFT 全盘文件枚举（FSCTL_ENUM_USN_DATA，Everything 同款技术）。
-//! 移植自 filefind/mft_index.py。需要管理员权限；非 NTFS / 权限不足返回 None，
+//! 移植自前身 Python 参考实现 mft_index.py。需要管理员权限；非 NTFS / 权限不足返回 None，
 //! 调用方降级目录遍历（scanner::build_dir_index）。
 
 use std::collections::HashMap;

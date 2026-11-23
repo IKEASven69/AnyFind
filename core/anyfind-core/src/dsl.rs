@@ -550,7 +550,7 @@ mod tests {
     fn all_fields() {
         let q = parse(
             "kind:session agent:claude-code project:anyfind ext:pdf;docx \
-             size:>10mb date:today in:D:/coding role:user 关键词",
+             size:>10mb date:today in:C:/projects role:user 关键词",
         );
         no_err(&q);
         assert!(q.filters.contains(&Filter::Kind(vec!["session".into()])));
@@ -559,7 +559,7 @@ mod tests {
         assert!(q.filters.contains(&Filter::Ext(vec!["pdf".into(), "docx".into()])));
         assert!(q.filters.contains(&Filter::Size(SizeRange { min: Some(10 << 20), max: None })));
         assert!(q.filters.iter().any(|f| matches!(f, Filter::Date(_))));
-        assert!(q.filters.contains(&Filter::In("D:/coding".into())));
+        assert!(q.filters.contains(&Filter::In("C:/projects".into())));
         assert!(q.filters.contains(&Filter::Role("user".into())));
         assert_eq!(q.expr, Some(TermExpr::Word("关键词".into())));
     }

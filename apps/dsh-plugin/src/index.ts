@@ -1,5 +1,5 @@
 /**
- * dsh-anyfind host 半：把 filefind 统一搜索内核接进 dsh。
+ * dsh-anyfind host 半：把统一搜索内核接进 dsh。
  * 注册面：
  *   - webServer 代理路由 /dsh-anyfind/api/{health,search,resume,config} 与
  *     /dsh-anyfind/api/file/{list,read,stat,op,drives}（文件端点状态码原样透传）

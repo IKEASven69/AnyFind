@@ -1,6 +1,6 @@
 //! 选型实验：rusqlite FTS5 (trigram) vs Tantivy，真实语料基准。
 //! 语料 A：六家 harness 会话消息（anyfind-core 适配器现采）。
-//! 语料 B：文件名（filefind 既有 index.db 的 files 表抽 10 万条，真实全盘数据）。
+//! 语料 B：文件名（前身内核遗留 index.db 的 files 表抽 10 万条，真实全盘数据）。
 //! 输出 JSON 到 stdout；结论人工写进 docs/bench-001.md。
 
 use rusqlite::params;

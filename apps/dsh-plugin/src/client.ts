@@ -835,7 +835,7 @@ function tintQuery(q: string): TintToken[] {
 const SYNTAX_ROWS: ReadonlyArray<{ ins: string; desc: string }> = [
   { ins: 'kind:', desc: 'file / content / session / skill / memory' },
   { ins: 'agent:', desc: 'claude-code / codex / dsh / opencode / pi / cursor' },
-  { ins: 'project:', desc: '按项目名，如 project:filefind' },
+  { ins: 'project:', desc: '按项目名，如 project:demo' },
   { ins: 'date:', desc: 'date:2026-10-01..2026-10-20 或 date:7d' },
   { ins: 'ext:', desc: '按扩展名，如 ext:.py、ext:md' },
   { ins: 'in:', desc: '限定目录，如 in:C:/projects' },

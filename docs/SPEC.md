@@ -1,6 +1,6 @@
 # AnyFind v1 — 最终规格（SPEC）
 
-> 2026-10-20。取代 filefind/docs/PRD-unified-search.md 的两步路线，直接按最终形态构建。
+> 2026-10-20。取代前身项目 PRD 的两步路线，直接按最终形态构建。
 > 产品名称已正式确定为 AnyFind。
 
 ## 一句话
@@ -44,7 +44,7 @@ Windows 上 Everything 级的即时搜索：一个索引统一 **文件名 / 文
 - 输入框即解析器：字段 token 染色（字段名一色、值一色）、非法语法实时红波浪提示、`agent:`/`project:`/`in:` 的值从索引实时 suggest 下拉
 - 解析器放内核（Rust），UI 与内核共用同一语法定义（避免两套方言）
 
-## UI 修正（对 filefind 桌面版实测问题的硬要求）
+## UI 修正（对前身桌面版实测问题的硬要求）
 
 1. **类型切换瞬时**：`/api/search` 一次返回全部 groups，切 tab 纯客户端过滤，禁止重新请求；搜索结果随查询缓存，切 tab 零渲染延迟（虚拟列表如需）
 2. **加载态**：「搜索中…」居中于整个结果区域（带 skeleton 行），不是输入框下方小字
@@ -53,13 +53,13 @@ Windows 上 Everything 级的即时搜索：一个索引统一 **文件名 / 文
 
 ## 六家 harness 适配器（Tier 1）
 
-claude-code / codex / dsh（.jsonl.zstd 多版本目录取最高版）/ opencode（storage 三层）/ pi / cursor（探测占位）。逻辑从 filefind Python 版移植，proptest 覆盖畸形行容错。各家 resume 命令生成保持契约 /api/resume 语义。每家会话重建在单事务内完成，搜索、原文预览和 resume 不得看到删旧插新之间的空窗。
+claude-code / codex / dsh（.jsonl.zstd 多版本目录取最高版）/ opencode（storage 三层）/ pi / cursor（探测占位）。逻辑从前身 Python 版移植，proptest 覆盖畸形行容错。各家 resume 命令生成保持契约 /api/resume 语义。每家会话重建在单事务内完成，搜索、原文预览和 resume 不得看到删旧插新之间的空窗。
 
 ## 验收（第三方可证）
 
 1. **Everything 对比**：同机同查询集延迟/召回对比表（文件名搜索）
 2. **黄金集**：50 条标注「查询→应命中」自动化评测，全过
-3. **契约回归**：dsh-anyfind 插件（anyfind/apps/dsh-plugin；旧 filefind/dsh-plugin 仍以 dsh-recall 名挂在 web profile，迁移见发布包）不换内核地址只换端口即可工作——证明 HTTP 契约未破坏
+3. **契约回归**：dsh-anyfind 插件（apps/dsh-plugin）不换内核地址只换端口即可工作——证明 HTTP 契约未破坏
 4. **benchmark 报告**：延迟预算表逐项实测数据
 
 ## 两路并行分工

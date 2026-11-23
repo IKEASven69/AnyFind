@@ -706,7 +706,7 @@ fn normalize_shortcut(combo: &str) -> Result<String, String> {
     Ok(all.join("+"))
 }
 
-/// 前台锁绕过（沿用 filefind/desktop.py 验证过的方案）：
+/// 前台锁绕过（沿用前身项目 desktop.py 验证过的方案）：
 /// 先注入一次 Alt 按键让本进程获得前台权限，再 SetForegroundWindow。
 /// 不用 always_on_top 弹跳 —— 它在 Windows 上会补回原生标题栏，
 /// 且与 WebView2 输入处理并发时有死锁风险。

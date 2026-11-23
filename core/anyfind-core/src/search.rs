@@ -1,5 +1,5 @@
 //! 统一搜索：DSL 解析 → 五类聚合到契约 groups 结构。
-//! 移植自 filefind/server.py 的 unified_search，过滤语义升级为 DSL v1。
+//! 移植自前身 Python 参考实现 server.py 的 unified_search，过滤语义升级为 DSL v1。
 //! snippet 高亮：FTS 哨兵（\uE000/\uE001）→ HTML 转义 → <mark>。
 
 use crate::db;

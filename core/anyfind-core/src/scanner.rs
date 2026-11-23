@@ -1,5 +1,5 @@
 //! 目录遍历文件索引（MFT 不可用时的降级路径）+ 内容索引。
-//! 移植自 filefind/scanner.py。
+//! 移植自前身 Python 参考实现 scanner.py。
 
 use crate::message::stat_meta;
 use crate::util;

@@ -1,4 +1,4 @@
-//! agent 记忆 / 技能文件索引（移植自 filefind/agent_files_index.py）。
+//! agent 记忆 / 技能文件索引（移植自前身 Python 参考实现 agent_files_index.py）。
 //! kind = skill | memory；项目级目录从 sessions 表的 cwd 推导，不另配扫描根。
 
 use crate::db;

@@ -84295,7 +84295,7 @@ window.__ModuleLoader__.load({
 		var SYNTAX_ROWS = [
 		  { ins: "kind:", desc: "file / content / session / skill / memory" },
 		  { ins: "agent:", desc: "claude-code / codex / dsh / opencode / pi / cursor" },
-		  { ins: "project:", desc: "\u6309\u9879\u76EE\u540D\uFF0C\u5982 project:filefind" },
+		  { ins: "project:", desc: "\u6309\u9879\u76EE\u540D\uFF0C\u5982 project:demo" },
 		  { ins: "date:", desc: "date:2026-10-01..2026-10-20 \u6216 date:7d" },
 		  { ins: "ext:", desc: "\u6309\u6269\u5C55\u540D\uFF0C\u5982 ext:.py\u3001ext:md" },
 		  { ins: "in:", desc: "\u9650\u5B9A\u76EE\u5F55\uFF0C\u5982 in:C:/projects" },

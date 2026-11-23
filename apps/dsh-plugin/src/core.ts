@@ -1,5 +1,5 @@
 /**
- * 统一搜索内核（filefind）HTTP 客户端 + 结果格式化。
+ * 统一搜索内核 HTTP 客户端 + 结果格式化。
  * host 半的代理路由、anyfind_search 工具、/anyfind 斜杠命令共用这一层；
  * 契约对齐 docs/api-contract.md v0.1（端点路径/参数名/响应字段名固定）。
  * @module dsh-anyfind/core
